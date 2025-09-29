@@ -65,30 +65,30 @@ lpr_data_t dados_camera_entrada;
 lpr_data_t dados_camera_saida;
 placar_data_t dados_placar;
 
-#define tamVetorEnviar 22
-#define tamVetorReceber 5
+#define TAMANHO_VETOR_ENVIAR 22
+#define TAMANHO_VETOR_RECEBER 5
 
-int parametros[tamVetorEnviar];
-int recebe[tamVetorReceber];
+int dados_terreo[TAMANHO_VETOR_ENVIAR];
+int comandos_central[TAMANHO_VETOR_RECEBER];
 int fechado = 0;
 
 int separaIguala(){
     
-    parametros[0] = vagas_pcd_disponiveis;
-    parametros[1] = vagas_idoso_disponiveis;
-    parametros[2] = vagas_comum_disponiveis;
-    parametros[3] = vagas_terreo[0].ocupada;
-    parametros[4] = vagas_terreo[1].ocupada;
-    parametros[5] = vagas_terreo[2].ocupada;
-    parametros[6] = vagas_terreo[3].ocupada;
-    parametros[7] = vagas_terreo[4].ocupada;
-    parametros[8] = vagas_terreo[5].ocupada;
-    parametros[9] = vagas_terreo[6].ocupada;
-    parametros[10] = vagas_terreo[7].ocupada;
-    parametros[12] = total_carros_terreo;
-    parametros[18] = estatisticas_vagas.somaVagas;
-    fechado = recebe[1];
-    parametros[19] = recebe[4];    
+    dados_terreo[0] = vagas_pcd_disponiveis;
+    dados_terreo[1] = vagas_idoso_disponiveis;
+    dados_terreo[2] = vagas_comum_disponiveis;
+    dados_terreo[3] = vagas_terreo[0].ocupada;
+    dados_terreo[4] = vagas_terreo[1].ocupada;
+    dados_terreo[5] = vagas_terreo[2].ocupada;
+    dados_terreo[6] = vagas_terreo[3].ocupada;
+    dados_terreo[7] = vagas_terreo[4].ocupada;
+    dados_terreo[8] = vagas_terreo[5].ocupada;
+    dados_terreo[9] = vagas_terreo[6].ocupada;
+    dados_terreo[10] = vagas_terreo[7].ocupada;
+    dados_terreo[12] = total_carros_terreo;
+    dados_terreo[18] = estatisticas_vagas.somaVagas;
+    fechado = comandos_central[1];
+    dados_terreo[19] = comandos_central[4];    
 }
 
 //Função que lê o sensor da cancela de entrada quando um carro está entrando no estacionamento
@@ -100,7 +100,7 @@ void * sensorEntrada(){
         //Lê o sensor de abertura da cancela de entrada e aciona o motor da cancela para abrir
         if(HIGH == bcm2835_gpio_lev(SENSOR_ABERTURA_CANCELA_ENTRADA)){
             bcm2835_gpio_write(MOTOR_CANCELA_ENTRADA, HIGH);
-            parametros[19]=1;
+            dados_terreo[19]=1;
             
             // Disparar captura da câmera de entrada
             if (ctx_modbus) {
@@ -135,7 +135,7 @@ void * sensorEntrada(){
             if(flag_entrada==0){
                 ++total_carros_terreo;
                 flag_entrada=1;
-                parametros[19]=1;
+                dados_terreo[19]=1;
             }
         }else flag_entrada=0;
         
@@ -178,7 +178,7 @@ void * sensorSaida(){
         //Lê o sensor de saída da cancela de saída e aciona o motor da cancela para fechar
         if(HIGH == bcm2835_gpio_lev(SENSOR_FECHAMENTO_CANCELA_SAIDA)){
             bcm2835_gpio_write(MOTOR_CANCELA_SAIDA, LOW);
-            parametros[19]=0;
+            dados_terreo[19]=0;
         }
     }
 }
@@ -260,12 +260,12 @@ void pagamento(int g, vaga *v){
     salvar_evento_arquivo(&evento);
     log_info("Carro saiu - Vaga: %d, Tempo: %d min, Valor: R$ %.2f", g, v[g-1].tempo_permanencia_minutos, valor_pago);
     
-    parametros[14]=1;
-    parametros[15]=v[g-1].numero_carro;
-    parametros[16]=v[g-1].tempo_permanencia_minutos;
-    parametros[17]=g;
+    dados_terreo[14]=1;
+    dados_terreo[15]=v[g-1].numero_carro;
+    dados_terreo[16]=v[g-1].tempo_permanencia_minutos;
+    dados_terreo[17]=g;
     delay(1000);
-    parametros[14]=0;
+    dados_terreo[14]=0;
 }
 
 //Função que verifica em qual vaga o carro estacionou
@@ -297,11 +297,11 @@ void buscaCarro(int f , vaga *v){
     salvar_evento_arquivo(&evento);
     log_info("Carro entrou - Vaga: %d, Placa: %s", f, v[f-1].placa_veiculo);
     
-    parametros[11] = 1;
-    parametros[13] = f;
+    dados_terreo[11] = 1;
+    dados_terreo[13] = f;
 
     delay(1000);
-    parametros[11] = 0;
+    dados_terreo[11] = 0;
 }
 
 //Função que lê o estado das vagas do terreo
@@ -366,12 +366,12 @@ void leituraVagasTerreo(vaga *v){
         // Térreo possui apenas 4 vagas (1 PCD, 1 Idoso, 2 Comuns)
             
         mudanca_vaga = mudancaEstadoVaga(&estatisticas_vagas, soma_valores_anterior);
-        parametros[16]=0;
+        dados_terreo[16]=0;
         if(mudanca_vaga>0 && mudanca_vaga<5){  // Ajustado para 4 vagas
-            parametros[19] = 1;
+            dados_terreo[19] = 1;
             pagamento(mudanca_vaga, v);
         }else if(mudanca_vaga<0 && mudanca_vaga>-5){  // Ajustado para 4 vagas
-            parametros[19] = 0;
+            dados_terreo[19] = 0;
             buscaCarro(mudanca_vaga, v);
         } 
         soma_valores_anterior = estatisticas_vagas.somaValores;
@@ -416,7 +416,7 @@ void *enviaParametros(){
     
     while(1){
         // Enviar dados via JSON (entrada, saída, passagem, etc.)
-        if (parametros[11] == 1) { // Carro entrando
+        if (dados_terreo[11] == 1) { // Carro entrando
             entrada_ok_t entrada;
             strcpy(entrada.tipo, "entrada_ok");
             strcpy(entrada.placa, "ABC1234"); // Placa da câmera LPR
@@ -429,7 +429,7 @@ void *enviaParametros(){
             send_json_message(sock, entrada_json);
         }
         
-        if (parametros[14] == 1) { // Carro saindo
+        if (dados_terreo[14] == 1) { // Carro saindo
             saida_ok_t saida;
             strcpy(saida.tipo, "saida_ok");
             strcpy(saida.placa, "ABC1234"); // Placa da câmera LPR
@@ -443,7 +443,7 @@ void *enviaParametros(){
         }
         
         // Manter compatibilidade com arrays antigos
-        send (sock, parametros, tamVetorEnviar *sizeof(int) , 0);
+        send (sock, dados_terreo, TAMANHO_VETOR_ENVIAR *sizeof(int) , 0);
         
         // Receber resposta JSON do servidor central
         if (receive_json_message(sock, json_buffer, sizeof(json_buffer)) == 0) {
@@ -454,7 +454,7 @@ void *enviaParametros(){
             }
         }
         
-        recv(sock, recebe, tamVetorReceber * sizeof(int), 0);
+        recv(sock, comandos_central, TAMANHO_VETOR_RECEBER * sizeof(int), 0);
         delay(1000);
     }
     close(sock);

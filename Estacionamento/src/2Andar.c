@@ -62,28 +62,28 @@ int mudanca_vaga_andar2 = 0, flag_entrada_andar2 = 0, total_carros_andar2 = 0;
 int vagas_idoso_disponiveis_andar2 = 2, vagas_pcd_disponiveis_andar2 = 1, vagas_comum_disponiveis_andar2 = 5, andar2_fechado = 0;
 int soma_valores_anterior_andar2 = 0;
 
-#define tamVetorEnviar 23
-#define tamVetorReceber 5
+#define TAMANHO_VETOR_ENVIAR 23
+#define TAMANHO_VETOR_RECEBER 5
 
-int parametros2[tamVetorEnviar];
-int recebe2[tamVetorReceber];
+int dados_andar2[TAMANHO_VETOR_ENVIAR];
+int comandos_central[TAMANHO_VETOR_RECEBER];
 
 int separaIguala2(){
     
-    parametros2[0]  = vagas_pcd_disponiveis_andar2;
-    parametros2[1]  = vagas_idoso_disponiveis_andar2;
-    parametros2[2]  = vagas_comum_disponiveis_andar2;
-    parametros2[3]  = vagas_andar2[0].ocupada;
-    parametros2[4]  = vagas_andar2[1].ocupada;
-    parametros2[5]  = vagas_andar2[2].ocupada;
-    parametros2[6]  = vagas_andar2[3].ocupada;
-    parametros2[7]  = vagas_andar2[4].ocupada;
-    parametros2[8]  = vagas_andar2[5].ocupada;
-    parametros2[9]  = vagas_andar2[6].ocupada;
-    parametros2[10] = vagas_andar2[7].ocupada;
-    parametros2[12] = recebe2[0];
-    parametros2[18] = estatisticas_vagas_andar2.somaVagas;
-    andar2_fechado = recebe2[3];
+    dados_andar2[0]  = vagas_pcd_disponiveis_andar2;
+    dados_andar2[1]  = vagas_idoso_disponiveis_andar2;
+    dados_andar2[2]  = vagas_comum_disponiveis_andar2;
+    dados_andar2[3]  = vagas_andar2[0].ocupada;
+    dados_andar2[4]  = vagas_andar2[1].ocupada;
+    dados_andar2[5]  = vagas_andar2[2].ocupada;
+    dados_andar2[6]  = vagas_andar2[3].ocupada;
+    dados_andar2[7]  = vagas_andar2[4].ocupada;
+    dados_andar2[8]  = vagas_andar2[5].ocupada;
+    dados_andar2[9]  = vagas_andar2[6].ocupada;
+    dados_andar2[10] = vagas_andar2[7].ocupada;
+    dados_andar2[12] = comandos_central[0];
+    dados_andar2[18] = estatisticas_vagas_andar2.somaVagas;
+    andar2_fechado = comandos_central[3];
 }
 
 void vagasOcupadas2(vaga *v){
@@ -132,7 +132,7 @@ void * vagasDisponiveis2(vaga *p){
 }
 
 int mudancaEstadoVaga2( int anteriorSomaValores1){
-    return anteriorSomaValores2-estatisticas_vagas_andar2.somaValores; 
+    return anteriorSomaValores1-estatisticas_vagas_andar2.somaValores; 
 }
 
 int timediff2(struct timeval entrada, struct timeval saida){ 
@@ -160,17 +160,17 @@ void pagamento2(int g, vaga *a){
     salvar_evento_arquivo(&evento);
     log_info("Carro saiu do 2º andar - Vaga: %d, Tempo: %d min, Valor: R$ %.2f", g, a[g-1].tempo_permanencia_minutos, valor_pago);
     
-    parametros2[14]=1;
-    parametros2[15]=a[g-1].numero_carro;
-    parametros2[16]=a[g-1].tempo_permanencia_minutos;
-    parametros2[17]=g;
+    dados_andar2[14]=1;
+    dados_andar2[15]=a[g-1].numero_carro;
+    dados_andar2[16]=a[g-1].tempo_permanencia_minutos;
+    dados_andar2[17]=g;
     delay(1000);
-    parametros2[14]=0;
+    dados_andar2[14]=0;
 }
 
 void buscaCarro2(int f , vaga *a){
     f *= -1;
-    a[f-1].numero_carro = parametros2[12];
+    a[f-1].numero_carro = dados_andar2[12];
     obter_timestamp_atual(&a[f-1].horario_entrada);
     a[f-1].numero_vaga = f;
     a[f-1].ocupada = true;
@@ -190,10 +190,10 @@ void buscaCarro2(int f , vaga *a){
     salvar_evento_arquivo(&evento);
     log_info("Carro entrou no 2º andar - Vaga: %d", f);
     
-    parametros2[11] = 1;
-    parametros2[13] = f;
+    dados_andar2[11] = 1;
+    dados_andar2[13] = f;
     delay(1000);
-    parametros2[11] = 0;
+    dados_andar2[11] = 0;
 }
 // Função para detectar passagem entre andares no 2º andar
 void *sensorPassagemB(){
@@ -228,7 +228,7 @@ void *sensorPassagemB(){
             
             if(diferenca_total_us > 0){
                 // Carro subindo: 1º andar -> 2º andar
-                parametros2[19] = 1;
+                dados_andar2[19] = 1;
                 log_info("Carro subindo: 1º andar -> 2º andar");
                 
                 // Log do evento de passagem
@@ -246,7 +246,7 @@ void *sensorPassagemB(){
             }
             else if(diferenca_total_us < 0){
                 // Carro descendo: 2º andar -> 1º andar
-                parametros2[19] = 2;
+                dados_andar2[19] = 2;
                 log_info("Carro descendo: 2º andar -> 1º andar");
                 
                 // Log do evento de passagem
@@ -264,7 +264,7 @@ void *sensorPassagemB(){
             }
             
             delay(1500);
-            parametros2[19] = 0;
+            dados_andar2[19] = 0;
             
             // Resetar flags
             sensor1_ativo = false;
@@ -394,19 +394,19 @@ void leituraVagasAndar2(vaga *b){
         
         if(estatisticas_vagas_andar2.somaVagas < 8 && andar2_fechado == 0){
             bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO2, LOW);
-            parametros2[20] = 0;
+            dados_andar2[20] = 0;
         }
         else if(estatisticas_vagas_andar2.somaVagas==8){
             bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO2, HIGH);
-            parametros2[20] = 1;
+            dados_andar2[20] = 1;
         } 
         else if(andar2_fechado == 1){
             bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO2, HIGH);
-            parametros2[20] = 1;
+            dados_andar2[20] = 1;
         } 
         else if(andar2_fechado == 0 ) {
             bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO2, LOW);
-            parametros2[20] = 0;
+            dados_andar2[20] = 0;
         }
     }
 }
@@ -442,7 +442,7 @@ void *enviaParametros2(){
     
     while(1){
         // Enviar dados via JSON (passagem entre andares)
-        if (parametros2[19] == 1) { // Carro em trânsito
+        if (dados_andar2[19] == 1) { // Carro em trânsito
             passagem_t passagem;
             strcpy(passagem.tipo, "passagem");
             passagem.andar_origem = 2;
@@ -455,7 +455,7 @@ void *enviaParametros2(){
         }
         
         // Manter compatibilidade com arrays antigos
-        send (sock, parametros2, tamVetorEnviar *sizeof(int) , 0);
+        send (sock, dados_andar2, TAMANHO_VETOR_ENVIAR *sizeof(int) , 0);
         
         // Receber resposta JSON do servidor central
         if (receive_json_message(sock, json_buffer, sizeof(json_buffer)) == 0) {
@@ -466,7 +466,7 @@ void *enviaParametros2(){
             }
         }
         
-        recv(sock, recebe2, tamVetorReceber * sizeof(int), 0);
+        recv(sock, comandos_central, TAMANHO_VETOR_RECEBER * sizeof(int), 0);
         delay(1000);
     }
     close(sock);

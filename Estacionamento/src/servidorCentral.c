@@ -14,12 +14,12 @@
 #include "common_utils.h"
 #include "json_utils.h"
 
-#define tamVetorReceber 23
-#define tamVetorEnviar 5
-int terreo[tamVetorReceber];
-int andar1[tamVetorReceber];
-int andar2[tamVetorReceber];
-int enviar[tamVetorEnviar];
+#define TAMANHO_VETOR_RECEBER 23
+#define TAMANHO_VETOR_ENVIAR 5
+int dados_terreo[TAMANHO_VETOR_RECEBER];
+int dados_andar1[TAMANHO_VETOR_RECEBER];
+int dados_andar2[TAMANHO_VETOR_RECEBER];
+int comandos_enviar[TAMANHO_VETOR_ENVIAR];
 int r = 0;
 int manual =  0;
 
@@ -78,80 +78,80 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
         printf("  Vagas ocupadas:\n");
         printf("                  | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |\n");
         printf("                   -------------------------------\n");        
-        printf("      2º Andar: B | %d | %d | %d | %d | %d | %d | %d | %d |\n", andar2[3], andar2[4], andar2[5], andar2[6], andar2[7], andar2[8], andar2[9], andar2[10]);
+        printf("      2º Andar: B | %d | %d | %d | %d | %d | %d | %d | %d |\n", dados_andar2[3], dados_andar2[4], dados_andar2[5], dados_andar2[6], dados_andar2[7], dados_andar2[8], dados_andar2[9], dados_andar2[10]);
         printf("                   -------------------------------\n");   
-        printf("      1º Andar: A | %d | %d | %d | %d | %d | %d | %d | %d |\n", andar1[3], andar1[4], andar1[5], andar1[6], andar1[7], andar1[8], andar1[9], andar1[10]);
+        printf("      1º Andar: A | %d | %d | %d | %d | %d | %d | %d | %d |\n", dados_andar1[3], dados_andar1[4], dados_andar1[5], dados_andar1[6], dados_andar1[7], dados_andar1[8], dados_andar1[9], dados_andar1[10]);
         printf("                   -------------------------------\n");   
-        printf("      Terreo:   T | %d | %d | %d | %d | - | - | - | - |\n", terreo[3], terreo[4], terreo[5], terreo[6]);
+        printf("      Terreo:   T | %d | %d | %d | %d | - | - | - | - |\n", dados_terreo[3], dados_terreo[4], dados_terreo[5], dados_terreo[6]);
         printf("                   -------------------------------\n"); 
 
         printf("\n  Vagas disponíveis no estacionamento:\n");
         printf("                  | PcD | Idoso | Regular | Total |\n");
         printf("                   -------------------------------\n"); 
-        printf("      2º Andar:   |  %d  |   %d   |    %d    |   %d   |\n", andar2[0], andar2[1], andar2[2], andar2[0]+andar2[1]+andar2[2]);
+        printf("      2º Andar:   |  %d  |   %d   |    %d    |   %d   |\n", dados_andar2[0], dados_andar2[1], dados_andar2[2], dados_andar2[0]+dados_andar2[1]+dados_andar2[2]);
         printf("                   -------------------------------\n"); 
-        printf("      1º Andar:   |  %d  |   %d   |    %d    |   %d   |\n", andar1[0], andar1[1], andar1[2], andar1[0]+andar1[1]+andar1[2]);
+        printf("      1º Andar:   |  %d  |   %d   |    %d    |   %d   |\n", dados_andar1[0], dados_andar1[1], dados_andar1[2], dados_andar1[0]+dados_andar1[1]+dados_andar1[2]);
         printf("                   -------------------------------\n"); 
-        printf("      Terreo:     |  %d  |   %d   |    %d    |   %d   |\n", terreo[0], terreo[1], terreo[2], terreo[0]+terreo[1]+terreo[2]);
+        printf("      Terreo:     |  %d  |   %d   |    %d    |   %d   |\n", dados_terreo[0], dados_terreo[1], dados_terreo[2], dados_terreo[0]+dados_terreo[1]+dados_terreo[2]);
         printf("                   -------------------------------\n"); 
         printf("\n  Carros no estacionamento:\n");
         
 
         
         printf("                  | Total | Terreo | 1º andar | 2º andar | \n");
-        printf("                  |   %d   |    %d   |     %d    |     %d    | \n", terreo[18]+andar1[18]+andar2[18] , terreo[18], andar1[18], andar2[18]);
-        float y = (andar1[16])*0.1;
-        float w = (andar2[16])*0.1;
-        float z = (terreo[16])*0.1; 
+        printf("                  |   %d   |    %d   |     %d    |     %d    | \n", dados_terreo[18]+dados_andar1[18]+dados_andar2[18] , dados_terreo[18], dados_andar1[18], dados_andar2[18]);
+        float y = (dados_andar1[16])*0.1;
+        float w = (dados_andar2[16])*0.1;
+        float z = (dados_terreo[16])*0.1; 
         
-        if(enviar[1] == 1){
+        if(comandos_enviar[1] == 1){
             printf("\n              -----------------------------------\n");
             printf("             |      Estacionamento fechado       |\n");
             printf("              -----------------------------------\n");
         }
-        if(andar1[20] == 1){
+        if(dados_andar1[20] == 1){
             printf("\n              -----------------------------------\n");
             printf("             |          1º andar fechado         |\n");
             printf("              -----------------------------------\n");
         }
-        if(andar2[20] == 1){
+        if(dados_andar2[20] == 1){
             printf("\n              -----------------------------------\n");
             printf("             |          2º andar fechado         |\n");
             printf("              -----------------------------------\n");
         }
-        if(andar1[14]==1){
+        if(dados_andar1[14]==1){
             printf("\n              ------------------------------------\n");
-            printf("             | Carro %d saiu da vaga A%d pagou %.2f |\n", andar1[15], andar1[17], y);
+            printf("             | Carro %d saiu da vaga A%d pagou %.2f |\n", dados_andar1[15], dados_andar1[17], y);
             printf("              ------------------------------------\n");
             delay(1500);
         }
-        if(andar2[14]==1){
+        if(dados_andar2[14]==1){
             printf("\n              ------------------------------------\n");
-            printf("             | Carro %d saiu da vaga B%d pagou %.2f |\n", andar2[15], andar2[17], w);
+            printf("             | Carro %d saiu da vaga B%d pagou %.2f |\n", dados_andar2[15], dados_andar2[17], w);
             printf("              ------------------------------------\n");
             delay(1500);
         }   
-        if(terreo[14]==1){
+        if(dados_terreo[14]==1){
             printf("\n              ------------------------------------\n");
-            printf("             | Carro %d saiu da vaga T%d pagou %.2f |\n", terreo[15], terreo[17], z);
+            printf("             | Carro %d saiu da vaga T%d pagou %.2f |\n", dados_terreo[15], dados_terreo[17], z);
             printf("              ------------------------------------\n");
             delay(1500);
         }
-        if(andar1[11]==1){
+        if(dados_andar1[11]==1){
             printf("\n                       ---------------------------\n");
-            printf("                      | Carro %d entrou na vaga A%d |\n", andar1[12], andar1[13]);
+            printf("                      | Carro %d entrou na vaga A%d |\n", dados_andar1[12], dados_andar1[13]);
             printf("                       ---------------------------\n");
             delay(1500);
         }
-        if(andar2[11]==1){
+        if(dados_andar2[11]==1){
             printf("\n                       ---------------------------\n");
-            printf("                      | Carro %d entrou na vaga B%d |\n", andar2[12], andar2[13]);
+            printf("                      | Carro %d entrou na vaga B%d |\n", dados_andar2[12], dados_andar2[13]);
             printf("                       ---------------------------\n");
             delay(1500);
         }
-        if(terreo[11]==1){
+        if(dados_terreo[11]==1){
             printf("\n                       ---------------------------\n");
-            printf("                      | Carro %d entrou na vaga T%d |\n", terreo[12], terreo[13]);
+            printf("                      | Carro %d entrou na vaga T%d |\n", dados_terreo[12], dados_terreo[13]);
             printf("                       ---------------------------\n");
             delay(1500);
         }
@@ -168,12 +168,12 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
         printf("  q - Encerrar estacionamento\n\n");      
 
         
-        if((terreo[18] == 8 && r==0 &&(andar1[18]== 8 || andar1[20] == 1) && (andar2[18] == 8 || andar2[20] == 1))){
-        enviar[1] = 1;
+        if((dados_terreo[18] == 8 && r==0 &&(dados_andar1[18]== 8 || dados_andar1[20] == 1) && (dados_andar2[18] == 8 || dados_andar2[20] == 1))){
+        comandos_enviar[1] = 1;
         r = 1;
         } 
-        else if((terreo[18] < 8 && r == 1 || andar1[20] == 0 || andar2[20] == 0)&& manual == 0){
-        enviar[1] = 0;          
+        else if((dados_terreo[18] < 8 && r == 1 || dados_andar1[20] == 0 || dados_andar2[20] == 0)&& manual == 0){
+        comandos_enviar[1] = 0;          
         r = 0;
         }
         
@@ -184,26 +184,26 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
             switch(opcao)
             {
             case '1':
-                enviar[1] = 0;
+                comandos_enviar[1] = 0;
                 r =0;
                 manual=0;
                 break;
             case '2':
-                enviar[1] = 1;
+                comandos_enviar[1] = 1;
                 r = 1;
                 manual = 1;
                 break;
             case '3':
-                enviar[2] = 0;
+                comandos_enviar[2] = 0;
                 break;
             case '4':
-                enviar[2] = 1;
+                comandos_enviar[2] = 1;
                 break;
             case'5':
-                enviar[3] = 0;
+                comandos_enviar[3] = 0;
                 break;
             case'6':
-                enviar[3] = 1;
+                comandos_enviar[3] = 1;
                 break;
             case '7':
                 mostrar_tickets_temporarios();
@@ -274,16 +274,16 @@ void *recebePrimeiroAndar(){
             
             // Processar mensagem recebida (pode ser entrada, saída, passagem, etc.)
             // Por enquanto, manter compatibilidade com arrays antigos
-            recv(client_sock, andar1, tamVetorReceber * sizeof(int), 0);
+            recv(client_sock, dados_andar1, TAMANHO_VETOR_RECEBER * sizeof(int), 0);
         }
         
         // Enviar resposta JSON
         strcpy(status_resposta.tipo, "vaga_status");
-        status_resposta.livres_a1 = andar1[0] + andar1[1] + andar1[2];
-        status_resposta.livres_a2 = andar2[0] + andar2[1] + andar2[2];
+        status_resposta.livres_a1 = dados_andar1[0] + dados_andar1[1] + dados_andar1[2];
+        status_resposta.livres_a2 = dados_andar2[0] + dados_andar2[1] + dados_andar2[2];
         status_resposta.livres_total = status_resposta.livres_a1 + status_resposta.livres_a2;
-        status_resposta.flags.lotado = (andar1[20] == 1 || andar2[20] == 1);
-        status_resposta.flags.bloq2 = (andar2[20] == 1);
+        status_resposta.flags.lotado = (dados_andar1[20] == 1 || dados_andar2[20] == 1);
+        status_resposta.flags.bloq2 = (dados_andar2[20] == 1);
         
         char response_json[512];
         serialize_vaga_status(&status_resposta, response_json, sizeof(response_json));
@@ -341,16 +341,16 @@ void *recebeSegundoAndar(){
             
             // Processar mensagem recebida (pode ser entrada, saída, passagem, etc.)
             // Por enquanto, manter compatibilidade com arrays antigos
-            recv(client_sock, andar2, tamVetorReceber * sizeof(int), 0);
+            recv(client_sock, dados_andar2, TAMANHO_VETOR_RECEBER * sizeof(int), 0);
         }
         
         // Enviar resposta JSON
         strcpy(status_resposta.tipo, "vaga_status");
-        status_resposta.livres_a1 = andar1[0] + andar1[1] + andar1[2];
-        status_resposta.livres_a2 = andar2[0] + andar2[1] + andar2[2];
+        status_resposta.livres_a1 = dados_andar1[0] + dados_andar1[1] + dados_andar1[2];
+        status_resposta.livres_a2 = dados_andar2[0] + dados_andar2[1] + dados_andar2[2];
         status_resposta.livres_total = status_resposta.livres_a1 + status_resposta.livres_a2;
-        status_resposta.flags.lotado = (andar1[20] == 1 || andar2[20] == 1);
-        status_resposta.flags.bloq2 = (andar2[20] == 1);
+        status_resposta.flags.lotado = (dados_andar1[20] == 1 || dados_andar2[20] == 1);
+        status_resposta.flags.bloq2 = (dados_andar2[20] == 1);
         
         char response_json[512];
         serialize_vaga_status(&status_resposta, response_json, sizeof(response_json));
@@ -409,22 +409,22 @@ void *recebeTerreo(){
             
             // Processar mensagem recebida (pode ser entrada, saída, passagem, etc.)
             // Por enquanto, manter compatibilidade com arrays antigos
-            recv(client_sock, terreo, tamVetorReceber * sizeof(int), 0);
+            recv(client_sock, dados_terreo, TAMANHO_VETOR_RECEBER * sizeof(int), 0);
         }
         
         // Enviar resposta JSON
         strcpy(status_resposta.tipo, "vaga_status");
-        status_resposta.livres_a1 = andar1[0] + andar1[1] + andar1[2];
-        status_resposta.livres_a2 = andar2[0] + andar2[1] + andar2[2];
+        status_resposta.livres_a1 = dados_andar1[0] + dados_andar1[1] + dados_andar1[2];
+        status_resposta.livres_a2 = dados_andar2[0] + dados_andar2[1] + dados_andar2[2];
         status_resposta.livres_total = status_resposta.livres_a1 + status_resposta.livres_a2;
-        status_resposta.flags.lotado = (andar1[20] == 1 || andar2[20] == 1);
-        status_resposta.flags.bloq2 = (andar2[20] == 1);
+        status_resposta.flags.lotado = (dados_andar1[20] == 1 || dados_andar2[20] == 1);
+        status_resposta.flags.bloq2 = (dados_andar2[20] == 1);
         
         char response_json[512];
         serialize_vaga_status(&status_resposta, response_json, sizeof(response_json));
         send_json_message(client_sock, response_json);
         
-        enviar[0] = terreo[12];
+        comandos_enviar[0] = dados_terreo[12];
         delay(1000);
     }
     close(client_sock);

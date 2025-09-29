@@ -10,7 +10,6 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <string.h>
-#include <sys/types.h>
 // Protótipos das funções principais
 int mainT();
 int mainC();
@@ -21,7 +20,6 @@ int mainD();
 int main(int argc, char **argv){
 
     char opcao = argv[1][0];
-    pthread_t aux1,aux2,aux3,aux4;
 
     if(opcao == 't'){
         mainT();

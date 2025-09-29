@@ -12,6 +12,19 @@
 // Constantes do sistema
 #define PRECO_POR_MINUTO 0.15f
 
+// Estrutura para vaga de estacionamento
+typedef struct {
+    int numero_vaga;
+    int numero_carro;
+    bool ocupada;
+    bool ocupado;  // Para compatibilidade com código existente
+    struct timeval horario_entrada;
+    struct timeval horario_saida;
+    int tempo_permanencia_minutos;
+    char placa_veiculo[9];
+    int confianca_leitura;
+} vaga_estacionamento_t;
+
 
 // Estrutura para tickets temporários
 typedef struct {

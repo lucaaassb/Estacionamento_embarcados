@@ -47,29 +47,29 @@ int mudanca_vaga_andar1 = 0, total_carros_andar1 = 0;
 int vagas_idoso_disponiveis_andar1 = 2, vagas_pcd_disponiveis_andar1 = 1, vagas_comum_disponiveis_andar1 = 5, andar1_fechado = 0;
 int soma_valores_anterior_andar1 = 0;
 
-#define tamVetorEnviar 23
-#define tamVetorReceber 5
+#define TAMANHO_VETOR_ENVIAR 23
+#define TAMANHO_VETOR_RECEBER 5
 
-int parametros1[tamVetorEnviar];
-int recebe1[tamVetorReceber];
+int dados_andar1[TAMANHO_VETOR_ENVIAR];
+int comandos_central[TAMANHO_VETOR_RECEBER];
 
 
 int separaIguala1(){
     
-    parametros1[0]  = vagas_pcd_disponiveis_andar1;
-    parametros1[1]  = vagas_idoso_disponiveis_andar1;
-    parametros1[2]  = vagas_comum_disponiveis_andar1;
-    parametros1[3]  = vagas_andar1[0].ocupada;
-    parametros1[4]  = vagas_andar1[1].ocupada;
-    parametros1[5]  = vagas_andar1[2].ocupada;
-    parametros1[6]  = vagas_andar1[3].ocupada;
-    parametros1[7]  = vagas_andar1[4].ocupada;
-    parametros1[8]  = vagas_andar1[5].ocupada;
-    parametros1[9]  = vagas_andar1[6].ocupada;
-    parametros1[10] = vagas_andar1[7].ocupada;
-    parametros1[12]= recebe1[0];
-    parametros1[18]= estatisticas_vagas_andar1.somaVagas;
-    andar1_fechado = recebe1[2];
+    dados_andar1[0]  = vagas_pcd_disponiveis_andar1;
+    dados_andar1[1]  = vagas_idoso_disponiveis_andar1;
+    dados_andar1[2]  = vagas_comum_disponiveis_andar1;
+    dados_andar1[3]  = vagas_andar1[0].ocupada;
+    dados_andar1[4]  = vagas_andar1[1].ocupada;
+    dados_andar1[5]  = vagas_andar1[2].ocupada;
+    dados_andar1[6]  = vagas_andar1[3].ocupada;
+    dados_andar1[7]  = vagas_andar1[4].ocupada;
+    dados_andar1[8]  = vagas_andar1[5].ocupada;
+    dados_andar1[9]  = vagas_andar1[6].ocupada;
+    dados_andar1[10] = vagas_andar1[7].ocupada;
+    dados_andar1[12]= comandos_central[0];
+    dados_andar1[18]= estatisticas_vagas_andar1.somaVagas;
+    andar1_fechado = comandos_central[2];
 }
 
 void vagasOcupadas1(vaga *v){
@@ -147,17 +147,17 @@ void pagamento1(int g, vaga *a){
     salvar_evento_arquivo(&evento);
     log_info("Carro saiu do 1º andar - Vaga: %d, Tempo: %d min, Valor: R$ %.2f", g, a[g-1].tempo_permanencia_minutos, valor_pago);
     
-    parametros1[14]=1;
-    parametros1[15]=a[g-1].numero_carro;
-    parametros1[16]=a[g-1].tempo_permanencia_minutos;
-    parametros1[17]=g;
+    dados_andar1[14]=1;
+    dados_andar1[15]=a[g-1].numero_carro;
+    dados_andar1[16]=a[g-1].tempo_permanencia_minutos;
+    dados_andar1[17]=g;
     delay(1000);
-    parametros1[14]=0;
+    dados_andar1[14]=0;
 }
 
 void buscaCarro1(int f , vaga *a){
     f *= -1;
-    a[f-1].numero_carro = parametros1[12];
+    a[f-1].numero_carro = dados_andar1[12];
     obter_timestamp_atual(&a[f-1].horario_entrada);
     a[f-1].numero_vaga = f;
     a[f-1].ocupada = true;
@@ -177,10 +177,10 @@ void buscaCarro1(int f , vaga *a){
     salvar_evento_arquivo(&evento);
     log_info("Carro entrou no 1º andar - Vaga: %d", f);
     
-    parametros1[11] = 1;
-    parametros1[13] = f;
+    dados_andar1[11] = 1;
+    dados_andar1[13] = f;
     delay(1000);
-    parametros1[11] = 0;
+    dados_andar1[11] = 0;
 }
 // Função para detectar passagem entre andares
 void *sensorPassagemA(){
@@ -215,7 +215,7 @@ void *sensorPassagemA(){
             
             if(diferenca_total_us > 0){
                 // Carro subindo: 1º andar -> 2º andar
-                parametros1[19] = 1;
+                dados_andar1[19] = 1;
                 log_info("Carro subindo: 1º andar -> 2º andar");
                 
                 // Log do evento de passagem
@@ -233,7 +233,7 @@ void *sensorPassagemA(){
             }
             else if(diferenca_total_us < 0){
                 // Carro descendo: 2º andar -> 1º andar
-                parametros1[19] = 2;
+                dados_andar1[19] = 2;
                 log_info("Carro descendo: 2º andar -> 1º andar");
                 
                 // Log do evento de passagem
@@ -251,7 +251,7 @@ void *sensorPassagemA(){
             }
             
             delay(1500);
-            parametros1[19] = 0;
+            dados_andar1[19] = 0;
             
             // Resetar flags
             sensor1_ativo = false;
@@ -384,20 +384,20 @@ void leituraVagasAndar1(vaga *b){
         
         if((estatisticas_vagas_andar1.somaVagas < 8 && andar1_fechado==0)){
             bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO1, LOW);
-            parametros1[20] = 0;
+            dados_andar1[20] = 0;
         }
         else if(estatisticas_vagas_andar1.somaVagas==8){
             bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO1, HIGH);
-            parametros1[20] = 1;
+            dados_andar1[20] = 1;
         } 
         
         else if(andar1_fechado==1){
             bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO1, HIGH);
-            parametros1[20] = 1;
+            dados_andar1[20] = 1;
         } 
         else if(andar1_fechado == 0){
             bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO1, LOW);
-            parametros1[20] = 0;
+            dados_andar1[20] = 0;
         } 
     }
 }
@@ -433,7 +433,7 @@ void *enviaParametros1(){
     
     while(1){
         // Enviar dados via JSON (passagem entre andares)
-        if (parametros1[19] == 1) { // Carro em trânsito
+        if (dados_andar1[19] == 1) { // Carro em trânsito
             passagem_t passagem;
             strcpy(passagem.tipo, "passagem");
             passagem.andar_origem = 1;
@@ -446,7 +446,7 @@ void *enviaParametros1(){
         }
         
         // Manter compatibilidade com arrays antigos
-        send (sock, parametros1, tamVetorEnviar *sizeof(int) , 0);
+        send (sock, dados_andar1, TAMANHO_VETOR_ENVIAR *sizeof(int) , 0);
         
         // Receber resposta JSON do servidor central
         if (receive_json_message(sock, json_buffer, sizeof(json_buffer)) == 0) {
@@ -457,7 +457,7 @@ void *enviaParametros1(){
             }
         }
         
-        recv(sock, recebe1, tamVetorReceber * sizeof(int), 0);
+        recv(sock, comandos_central, TAMANHO_VETOR_RECEBER * sizeof(int), 0);
         delay(1000);
     }
     close(sock);
