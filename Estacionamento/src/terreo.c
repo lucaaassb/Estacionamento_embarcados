@@ -1,0 +1,523 @@
+#include <bcm2835.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <stdbool.h>
+#include <time.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <string.h>
+#include <errno.h>
+#include "modbus_utils.h"
+#include "common_utils.h"
+#include "json_utils.h"
+
+
+//ANDAR TÉRREO
+#define ENDERECO_01 RPI_GPIO_P1_15                          // PINO 22 - SAÍDA
+#define ENDERECO_02 RPI_V2_GPIO_P1_37                       // PINO 26 - SAÍDA
+#define ENDERECO_03 RPI_V2_GPIO_P1_35                       // PINO 19 - SAÍDA
+#define SENSOR_DE_VAGA RPI_GPIO_P1_12                       // PINO 18 - ENTRADA
+#define SINAL_DE_LOTADO_FECHADO RPI_V2_GPIO_P1_13           // PINO 27 - SAÍDA
+#define SENSOR_ABERTURA_CANCELA_ENTRADA RPI_GPIO_P1_16      // PINO 23 - ENTRADA
+#define SENSOR_FECHAMENTO_CANCELA_ENTRADA RPI_GPIO_P1_18    // PINO 24 - ENTRADA
+#define MOTOR_CANCELA_ENTRADA RPI_GPIO_P1_19                // PINO 10 - SAÍDA
+#define SENSOR_ABERTURA_CANCELA_SAIDA RPI_GPIO_P1_22        // PINO 25 - ENTRADA
+#define SENSOR_FECHAMENTO_CANCELA_SAIDA RPI_V2_GPIO_P1_32   // PINO 12 - ENTRADA
+#define MOTOR_CANCELA_SAIDA RPI_GPIO_P1_11                  // PINO 17 - SAÍDA
+
+void configuraPinos(){
+    bcm2835_gpio_fsel(ENDERECO_01, BCM2835_GPIO_FSEL_OUTP);
+    bcm2835_gpio_fsel(ENDERECO_02, BCM2835_GPIO_FSEL_OUTP);
+    bcm2835_gpio_fsel(ENDERECO_03, BCM2835_GPIO_FSEL_OUTP);
+    bcm2835_gpio_fsel(SENSOR_DE_VAGA, BCM2835_GPIO_FSEL_INPT);
+    bcm2835_gpio_fsel(SINAL_DE_LOTADO_FECHADO, BCM2835_GPIO_FSEL_OUTP);
+    bcm2835_gpio_fsel(SENSOR_ABERTURA_CANCELA_ENTRADA, BCM2835_GPIO_FSEL_INPT);
+    bcm2835_gpio_fsel(SENSOR_FECHAMENTO_CANCELA_ENTRADA, BCM2835_GPIO_FSEL_INPT);
+    bcm2835_gpio_fsel(MOTOR_CANCELA_ENTRADA, BCM2835_GPIO_FSEL_OUTP);
+    bcm2835_gpio_fsel(SENSOR_ABERTURA_CANCELA_SAIDA, BCM2835_GPIO_FSEL_INPT);
+    bcm2835_gpio_fsel(SENSOR_FECHAMENTO_CANCELA_SAIDA, BCM2835_GPIO_FSEL_INPT);
+    bcm2835_gpio_fsel(MOTOR_CANCELA_SAIDA, BCM2835_GPIO_FSEL_OUTP);
+}
+// Usar a estrutura melhorada do common_utils.h
+typedef vaga_estacionamento_t vaga;
+
+typedef struct vsoma{
+    int somaValores;    // Soma dos valores das vagas ocupadas (ex: 1+2+3+4+5+6+7+8 = 36)
+    int somaVagas;      // Soma das vagas ocupadas (ex: 1+1+1+1+1+1+1+1 = 8)
+}vsoma;
+
+// Variáveis do sistema
+int contador_carros = 0;
+int valor_sensor_vaga;              // Valor lido pelo sensor de vaga
+vaga *vagas_terreo;
+vsoma estatisticas_vagas;
+int mudanca_vaga = 0, flag_entrada = 0, total_carros_terreo = 0;
+int vagas_idoso_disponiveis = 2, vagas_pcd_disponiveis = 1, vagas_comum_disponiveis = 5;
+int soma_valores_anterior = 0;
+
+// Variáveis MODBUS
+modbus_t* ctx_modbus = NULL;
+lpr_data_t dados_camera_entrada;
+lpr_data_t dados_camera_saida;
+placar_data_t dados_placar;
+
+#define tamVetorEnviar 22
+#define tamVetorReceber 5
+
+int parametros[tamVetorEnviar];
+int recebe[tamVetorReceber];
+int fechado = 0;
+
+int separaIguala(){
+    
+    parametros[0] = vagas_pcd_disponiveis;
+    parametros[1] = vagas_idoso_disponiveis;
+    parametros[2] = vagas_comum_disponiveis;
+    parametros[3] = vagas_terreo[0].ocupada;
+    parametros[4] = vagas_terreo[1].ocupada;
+    parametros[5] = vagas_terreo[2].ocupada;
+    parametros[6] = vagas_terreo[3].ocupada;
+    parametros[7] = vagas_terreo[4].ocupada;
+    parametros[8] = vagas_terreo[5].ocupada;
+    parametros[9] = vagas_terreo[6].ocupada;
+    parametros[10] = vagas_terreo[7].ocupada;
+    parametros[12] = total_carros_terreo;
+    parametros[18] = estatisticas_vagas.somaVagas;
+    fechado = recebe[1];
+    parametros[19] = recebe[4];    
+}
+
+//Função que lê o sensor da cancela de entrada quando um carro está entrando no estacionamento
+void * sensorEntrada(){
+    while(1){
+        
+        if(fechado==0){
+
+        //Lê o sensor de abertura da cancela de entrada e aciona o motor da cancela para abrir
+        if(HIGH == bcm2835_gpio_lev(SENSOR_ABERTURA_CANCELA_ENTRADA)){
+            bcm2835_gpio_write(MOTOR_CANCELA_ENTRADA, HIGH);
+            parametros[19]=1;
+            
+            // Disparar captura da câmera de entrada
+            if (ctx_modbus) {
+                if (capture_license_plate(ctx_modbus, CAMERA_ENTRADA_ADDR, &dados_camera_entrada, 2000) == 0) {
+                    log_info("Placa capturada na entrada");
+                    // Validar placa
+                    if (validar_placa(dados_camera_entrada.placa) && dados_camera_entrada.confianca >= 70) {
+                        log_info("Placa válida capturada na entrada");
+                    } else {
+                        log_erro("Placa inválida ou baixa confiança na entrada");
+                        // Gerar ticket temporário para placa não lida/baixa confiança
+                        int ticket_id = gerar_ticket_temporario(dados_camera_entrada.placa, 
+                                                              dados_camera_entrada.confianca, 
+                                                              0, 0); // Vaga será definida quando estacionar
+                        if (ticket_id > 0) {
+                            log_info("Ticket temporário gerado para entrada: %d", ticket_id);
+                        }
+                    }
+                } else {
+                    log_erro("Falha na captura da placa na entrada");
+                    // Gerar ticket temporário para falha de captura
+                    int ticket_id = gerar_ticket_temporario("FALHA", 0, 0, 0);
+                    if (ticket_id > 0) {
+                        log_info("Ticket temporário gerado para falha de captura: %d", ticket_id);
+                    }
+                }
+            }
+        }
+        //Lê o sensor de saída da cancela e aciona o motor da cancela para fechar
+        if(HIGH == bcm2835_gpio_lev(SENSOR_FECHAMENTO_CANCELA_ENTRADA)){
+            bcm2835_gpio_write(MOTOR_CANCELA_ENTRADA, LOW);
+            if(flag_entrada==0){
+                ++total_carros_terreo;
+                flag_entrada=1;
+                parametros[19]=1;
+            }
+        }else flag_entrada=0;
+        
+        }
+            
+    }
+}
+
+//Função que lê o sensor da cancela de saída quando um carro está saindo do estacionamento
+void * sensorSaida(){
+    while(1){
+         //Lê o sensor de abertura da cancela de saida e aciona o motor da cancela para abrir
+        if(HIGH == bcm2835_gpio_lev(SENSOR_ABERTURA_CANCELA_SAIDA)){
+            bcm2835_gpio_write(MOTOR_CANCELA_SAIDA, HIGH);
+            
+            // Disparar captura da câmera de saída
+            if (ctx_modbus) {
+                if (capture_license_plate(ctx_modbus, CAMERA_SAIDA_ADDR, &dados_camera_saida, 2000) == 0) {
+                    log_info("Placa capturada na saída");
+                    // Validar placa
+                    if (validar_placa(dados_camera_saida.placa) && dados_camera_saida.confianca >= 70) {
+                        log_info("Placa válida capturada na saída");
+                        // Verificar correspondência com entrada
+                        if (!buscar_correspondencia_entrada(dados_camera_saida.placa)) {
+                            sinalizar_alerta_auditoria(dados_camera_saida.placa, 
+                                                    "Carro sem correspondência de entrada", 1);
+                        }
+                    } else {
+                        log_erro("Placa inválida ou baixa confiança na saída");
+                        sinalizar_alerta_auditoria(dados_camera_saida.placa, 
+                                                "Placa inválida na saída", 2);
+                    }
+                } else {
+                    log_erro("Falha na captura da placa na saída");
+                    sinalizar_alerta_auditoria("DESCONHECIDA", 
+                                            "Falha na captura da placa na saída", 3);
+                }
+            }
+        }
+        //Lê o sensor de saída da cancela de saída e aciona o motor da cancela para fechar
+        if(HIGH == bcm2835_gpio_lev(SENSOR_FECHAMENTO_CANCELA_SAIDA)){
+            bcm2835_gpio_write(MOTOR_CANCELA_SAIDA, LOW);
+            parametros[19]=0;
+        }
+    }
+}
+
+//Função que verifica quais vagas estão ocupadas (TÉRREO: 4 vagas)
+void vagasOcupadas(vaga *v){
+    
+    estatisticas_vagas.somaValores = 0;
+    estatisticas_vagas.somaVagas = 0;
+    for(int i = 0; i<4; i++){  // Ajustado para 4 vagas
+        if(v[i].ocupada){
+            estatisticas_vagas.somaVagas++;
+        }
+        estatisticas_vagas.somaValores += v[i].numero_vaga;
+    }
+}
+
+//Função que verifica e imprime as vagas disponíveis por tipo (TÉRREO: 4 vagas)
+void * vagasDisponiveis(vaga *v){
+    vagas_idoso_disponiveis = 1;  // 1 vaga para idoso
+    vagas_pcd_disponiveis = 1;    // 1 vaga para PCD
+    vagas_comum_disponiveis = 2;  // 2 vagas comuns (total: 4 vagas)
+    
+        // Vagas comuns (vagas 3 e 4)
+        for(int i=2; i<4; i++){
+            if(v[i].ocupada)
+                v[i].ocupada = 1;
+            else if(!v[i].ocupada)
+                v[i].ocupada=0;
+            vagas_comum_disponiveis -= v[i].ocupada;
+        }
+        
+        // Vaga idoso (vaga 2)
+        if(v[1].ocupada)
+            v[1].ocupada = 1;
+        else if(!v[1].ocupada)
+            v[1].ocupada=0;
+        vagas_idoso_disponiveis -= v[1].ocupada;
+        
+        // Vaga PCD (vaga 1)
+        if(v[0].ocupada){
+            vagas_pcd_disponiveis=0;
+            v[0].ocupada = 1;
+        }
+        else if(!v[0].ocupada) {
+            vagas_pcd_disponiveis=1;
+            v[0].ocupada=0;
+        }
+}
+
+//Função que verifica a mudança de estado das vagas
+int mudancaEstadoVaga(vsoma *s, int anteriorSomaValores){
+    return anteriorSomaValores-s->somaValores; 
+}
+
+//Função que calcula o tempo de permanência do carro na vaga
+int timediff(struct timeval entrada, struct timeval saida){
+    return calcular_tempo_permanencia(entrada, saida);
+}
+
+//Função que calcula o valor a ser pago pelo carro que estava na vaga
+void pagamento(int g, vaga *v){
+    obter_timestamp_atual(&v[g-1].horario_saida);
+    v[g-1].tempo_permanencia_minutos = timediff(v[g-1].horario_entrada, v[g-1].horario_saida);
+    float valor_pago = calcular_valor_pagamento(v[g-1].tempo_permanencia_minutos);
+    
+    // Log do evento de saída
+    evento_sistema_t evento;
+    evento.timestamp = time(NULL);
+    evento.tipo_evento = 2; // Saída
+    evento.andar_origem = 0; // Térreo
+    evento.andar_destino = 0;
+    evento.numero_carro = v[g-1].numero_carro;
+    evento.numero_vaga = g;
+    strcpy(evento.placa_veiculo, v[g-1].placa_veiculo);
+    evento.valor_pago = valor_pago;
+    evento.confianca_leitura = v[g-1].confianca_leitura;
+    
+    salvar_evento_arquivo(&evento);
+    log_info("Carro saiu - Vaga: %d, Tempo: %d min, Valor: R$ %.2f", g, v[g-1].tempo_permanencia_minutos, valor_pago);
+    
+    parametros[14]=1;
+    parametros[15]=v[g-1].numero_carro;
+    parametros[16]=v[g-1].tempo_permanencia_minutos;
+    parametros[17]=g;
+    delay(1000);
+    parametros[14]=0;
+}
+
+//Função que verifica em qual vaga o carro estacionou
+void buscaCarro(int f , vaga *v){
+    f *= -1;
+    v[f-1].numero_carro = total_carros_terreo;
+    obter_timestamp_atual(&v[f-1].horario_entrada);
+    v[f-1].numero_vaga = f;
+    v[f-1].ocupada = true;
+    
+    // Copiar dados da placa se disponível
+    if (strlen(dados_camera_entrada.placa) > 0) {
+        strcpy(v[f-1].placa_veiculo, dados_camera_entrada.placa);
+        v[f-1].confianca_leitura = dados_camera_entrada.confianca;
+    }
+    
+    // Log do evento de entrada
+    evento_sistema_t evento;
+    evento.timestamp = time(NULL);
+    evento.tipo_evento = 1; // Entrada
+    evento.andar_origem = 0; // Térreo
+    evento.andar_destino = 0;
+    evento.numero_carro = v[f-1].numero_carro;
+    evento.numero_vaga = f;
+    strcpy(evento.placa_veiculo, v[f-1].placa_veiculo);
+    evento.valor_pago = 0.0;
+    evento.confianca_leitura = v[f-1].confianca_leitura;
+    
+    salvar_evento_arquivo(&evento);
+    log_info("Carro entrou - Vaga: %d, Placa: %s", f, v[f-1].placa_veiculo);
+    
+    parametros[11] = 1;
+    parametros[13] = f;
+
+    delay(1000);
+    parametros[11] = 0;
+}
+
+//Função que lê o estado das vagas do terreo
+void leituraVagasTerreo(vaga *v){
+    mudanca_vaga=0;
+    soma_valores_anterior = 0;        
+    estatisticas_vagas.somaVagas = 0;
+    estatisticas_vagas.somaValores = 0;
+
+    while(1){
+        delay(50);
+        delay(50);
+        vagasOcupadas(v);
+        vagasDisponiveis(v);
+        separaIguala();
+
+        //Primeira vaga
+        bcm2835_gpio_write(ENDERECO_01, LOW);
+        bcm2835_gpio_write(ENDERECO_02, LOW);
+        bcm2835_gpio_write(ENDERECO_03, LOW);
+        delay(50);
+        valor_sensor_vaga = bcm2835_gpio_lev(SENSOR_DE_VAGA);
+        if(valor_sensor_vaga == 1)
+            v[0].ocupado = 1;
+
+        else if(valor_sensor_vaga == 0) 
+            v[0].ocupado = 0;
+        
+        //Segunda vaga
+        bcm2835_gpio_write(ENDERECO_01, HIGH);
+        bcm2835_gpio_write(ENDERECO_02, LOW);
+        bcm2835_gpio_write(ENDERECO_03, LOW);
+        delay(50);
+        valor_sensor_vaga = bcm2835_gpio_lev(SENSOR_DE_VAGA);
+        if(valor_sensor_vaga == 1)
+            v[1].ocupado = 2;
+        else if(valor_sensor_vaga == 0) 
+            v[1].ocupado = 0;
+
+        //Terceira vaga
+        bcm2835_gpio_write(ENDERECO_01, LOW);
+        bcm2835_gpio_write(ENDERECO_02, HIGH);
+        bcm2835_gpio_write(ENDERECO_03, LOW);
+        delay(50);
+        valor_sensor_vaga = bcm2835_gpio_lev(SENSOR_DE_VAGA);
+        if(valor_sensor_vaga == 1)
+            v[2].ocupado = 3;
+        else if(valor_sensor_vaga == 0) 
+            v[2].ocupado = 0;        
+
+        //Quarta vaga
+        bcm2835_gpio_write(ENDERECO_01, HIGH);
+        bcm2835_gpio_write(ENDERECO_02, HIGH);
+        bcm2835_gpio_write(ENDERECO_03, LOW);
+        delay(50);
+        valor_sensor_vaga = bcm2835_gpio_lev(SENSOR_DE_VAGA);
+        if(valor_sensor_vaga == 1)
+            v[3].ocupado = 4;
+        else if(valor_sensor_vaga == 0) 
+            v[3].ocupado = 0;        
+
+        // Térreo possui apenas 4 vagas (1 PCD, 1 Idoso, 2 Comuns)
+            
+        mudanca_vaga = mudancaEstadoVaga(&estatisticas_vagas, soma_valores_anterior);
+        parametros[16]=0;
+        if(mudanca_vaga>0 && mudanca_vaga<5){  // Ajustado para 4 vagas
+            parametros[19] = 1;
+            pagamento(mudanca_vaga, v);
+        }else if(mudanca_vaga<0 && mudanca_vaga>-5){  // Ajustado para 4 vagas
+            parametros[19] = 0;
+            buscaCarro(mudanca_vaga, v);
+        } 
+        soma_valores_anterior = estatisticas_vagas.somaValores;
+    
+        if(fechado == 1) {
+            bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO, HIGH);
+        }
+        else if(fechado == 0) {
+            bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO, LOW);
+        }
+    }
+}
+
+void *chamaLeitura(){
+    leituraVagasTerreo(v);
+}
+
+void *enviaParametros(){
+    char *ip ="127.0.0.1";
+    int port = 10683;
+    
+    int sock;
+    struct sockaddr_in addr;
+    socklen_t addr_size;
+
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+    if(sock < 0){
+        perror("[-]Socket error");
+        exit(1);
+    }
+    printf("[+]Server socket created\n");
+
+    memset(&addr, '\0', sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = inet_addr(ip);
+    connect(sock, (struct sockaddr*)&addr, sizeof(addr));
+    printf("Connected to Server\n");
+    
+    char json_buffer[1024];
+    vaga_status_t status_recebido;
+    
+    while(1){
+        // Enviar dados via JSON (entrada, saída, passagem, etc.)
+        if (parametros[11] == 1) { // Carro entrando
+            entrada_ok_t entrada;
+            strcpy(entrada.tipo, "entrada_ok");
+            strcpy(entrada.placa, "ABC1234"); // Placa da câmera LPR
+            entrada.conf = 85;
+            get_current_timestamp(entrada.ts, sizeof(entrada.ts));
+            entrada.andar = 0; // Térreo
+            
+            char entrada_json[512];
+            serialize_entrada_ok(&entrada, entrada_json, sizeof(entrada_json));
+            send_json_message(sock, entrada_json);
+        }
+        
+        if (parametros[14] == 1) { // Carro saindo
+            saida_ok_t saida;
+            strcpy(saida.tipo, "saida_ok");
+            strcpy(saida.placa, "ABC1234"); // Placa da câmera LPR
+            saida.conf = 82;
+            get_current_timestamp(saida.ts, sizeof(saida.ts));
+            saida.andar = 0; // Térreo
+            
+            char saida_json[512];
+            serialize_saida_ok(&saida, saida_json, sizeof(saida_json));
+            send_json_message(sock, saida_json);
+        }
+        
+        // Manter compatibilidade com arrays antigos
+        send (sock, parametros, tamVetorEnviar *sizeof(int) , 0);
+        
+        // Receber resposta JSON do servidor central
+        if (receive_json_message(sock, json_buffer, sizeof(json_buffer)) == 0) {
+            printf("Recebido do central: %s\n", json_buffer);
+            if (deserialize_vaga_status(json_buffer, &status_recebido) == 0) {
+                printf("Status das vagas: A1=%d, A2=%d, Total=%d\n", 
+                       status_recebido.livres_a1, status_recebido.livres_a2, status_recebido.livres_total);
+            }
+        }
+        
+        recv(sock, recebe, tamVetorReceber * sizeof(int), 0);
+        delay(1000);
+    }
+    close(sock);
+    printf("Disconnected from server\n");
+}
+
+int mainT(){
+    // Inicializar sistema de logs
+    init_log_system();
+    log_info("Iniciando servidor do andar térreo");
+    
+    // Inicializar BCM2835
+    if (!bcm2835_init()) {
+        log_erro("Falha ao inicializar BCM2835");
+        return 1;
+    }
+
+    // Configurar pinos GPIO
+    configuraPinos();
+    log_info("Pinos GPIO configurados");
+    
+    // Inicializar MODBUS
+    ctx_modbus = init_modbus_connection("/dev/ttyUSB0", 115200);
+    if (!ctx_modbus) {
+        log_erro("Falha ao inicializar MODBUS - continuando sem câmeras");
+    } else {
+        log_info("MODBUS inicializado com sucesso");
+    }
+
+    // Inicializar variáveis
+    contador_carros = 0;
+    vagas_terreo = calloc(4, sizeof(vaga));  // Ajustado para 4 vagas
+    if (!vagas_terreo) {
+        log_erro("Falha ao alocar memória para vagas");
+        bcm2835_close();
+        return 1;
+    }
+
+    // Inicializar dados do placar
+    memset(&dados_placar, 0, sizeof(placar_data_t));
+
+    pthread_t fEntrada, fSaida, fLeituraVagas, fEnviaParametros;
+
+    log_info("Criando threads do servidor térreo");
+    pthread_create(&fLeituraVagas, NULL, chamaLeitura, NULL);
+    pthread_create(&fEnviaParametros, NULL, enviaParametros, NULL);
+    pthread_create(&fEntrada,NULL,sensorEntrada,NULL);
+    pthread_create(&fSaida,NULL,sensorSaida,NULL);
+
+    log_info("Servidor térreo em execução");
+    pthread_join(fEntrada,NULL);
+    pthread_join(fSaida,NULL);
+    pthread_join(fLeituraVagas, NULL);
+    pthread_join(fEnviaParametros, NULL);
+
+    // Limpeza
+    if (ctx_modbus) {
+        close_modbus_connection(ctx_modbus);
+    }
+    free(vagas_terreo);
+    close_log_system();
+    bcm2835_close();
+    
+    log_info("Servidor térreo finalizado");
+    return 0;
+}
