@@ -16,25 +16,21 @@
 #include "json_utils.h"
 
 
-//ANDAR TÉRREO
-#define ENDERECO_01 RPI_GPIO_P1_15                          // PINO 22 - SAÍDA
-#define ENDERECO_02 RPI_V2_GPIO_P1_37                       // PINO 26 - SAÍDA
-#define ENDERECO_03 RPI_V2_GPIO_P1_35                       // PINO 19 - SAÍDA
-#define SENSOR_DE_VAGA RPI_GPIO_P1_12                       // PINO 18 - ENTRADA
-#define SINAL_DE_LOTADO_FECHADO RPI_V2_GPIO_P1_13           // PINO 27 - SAÍDA
-#define SENSOR_ABERTURA_CANCELA_ENTRADA RPI_GPIO_P1_16      // PINO 23 - ENTRADA
-#define SENSOR_FECHAMENTO_CANCELA_ENTRADA RPI_GPIO_P1_18    // PINO 24 - ENTRADA
-#define MOTOR_CANCELA_ENTRADA RPI_GPIO_P1_19                // PINO 10 - SAÍDA
-#define SENSOR_ABERTURA_CANCELA_SAIDA RPI_GPIO_P1_22        // PINO 25 - ENTRADA
-#define SENSOR_FECHAMENTO_CANCELA_SAIDA RPI_V2_GPIO_P1_32   // PINO 12 - ENTRADA
-#define MOTOR_CANCELA_SAIDA RPI_GPIO_P1_11                  // PINO 17 - SAÍDA
+//ANDAR TÉRREO - Conforme Tabela 1 do README
+#define ENDERECO_01 RPI_GPIO_P1_11                          // PINO 17 - SAÍDA
+#define ENDERECO_02 RPI_V2_GPIO_P1_12                       // PINO 18 - SAÍDA
+#define SENSOR_DE_VAGA RPI_GPIO_P1_03                       // PINO 08 - ENTRADA
+#define SENSOR_ABERTURA_CANCELA_ENTRADA RPI_GPIO_P1_07      // PINO 07 - ENTRADA
+#define SENSOR_FECHAMENTO_CANCELA_ENTRADA RPI_GPIO_P1_18    // PINO 01 - ENTRADA
+#define MOTOR_CANCELA_ENTRADA RPI_GPIO_P1_16                // PINO 23 - SAÍDA
+#define SENSOR_ABERTURA_CANCELA_SAIDA RPI_V2_GPIO_P1_19     // PINO 12 - ENTRADA
+#define SENSOR_FECHAMENTO_CANCELA_SAIDA RPI_GPIO_P1_26      // PINO 25 - ENTRADA
+#define MOTOR_CANCELA_SAIDA RPI_GPIO_P1_18                  // PINO 24 - SAÍDA
 
 void configuraPinos(){
     bcm2835_gpio_fsel(ENDERECO_01, BCM2835_GPIO_FSEL_OUTP);
     bcm2835_gpio_fsel(ENDERECO_02, BCM2835_GPIO_FSEL_OUTP);
-    bcm2835_gpio_fsel(ENDERECO_03, BCM2835_GPIO_FSEL_OUTP);
     bcm2835_gpio_fsel(SENSOR_DE_VAGA, BCM2835_GPIO_FSEL_INPT);
-    bcm2835_gpio_fsel(SINAL_DE_LOTADO_FECHADO, BCM2835_GPIO_FSEL_OUTP);
     bcm2835_gpio_fsel(SENSOR_ABERTURA_CANCELA_ENTRADA, BCM2835_GPIO_FSEL_INPT);
     bcm2835_gpio_fsel(SENSOR_FECHAMENTO_CANCELA_ENTRADA, BCM2835_GPIO_FSEL_INPT);
     bcm2835_gpio_fsel(MOTOR_CANCELA_ENTRADA, BCM2835_GPIO_FSEL_OUTP);
@@ -64,6 +60,7 @@ modbus_t* ctx_modbus = NULL;
 lpr_data_t dados_camera_entrada;
 lpr_data_t dados_camera_saida;
 placar_data_t dados_placar;
+char matricula_usuario[10] = "202017700"; // Matrícula do usuário
 
 #define TAMANHO_VETOR_ENVIAR 22
 #define TAMANHO_VETOR_RECEBER 5
@@ -89,6 +86,44 @@ int separaIguala(){
     dados_terreo[18] = estatisticas_vagas.somaVagas;
     fechado = comandos_central[1];
     dados_terreo[19] = comandos_central[4];    
+}
+
+// Função para atualizar placar MODBUS
+void atualizar_placar_modbus() {
+    if (!ctx_modbus) return;
+    
+    // Preparar dados do placar
+    dados_placar.vagas_terreo_pcd = vagas_pcd_disponiveis;
+    dados_placar.vagas_terreo_idoso = vagas_idoso_disponiveis;
+    dados_placar.vagas_terreo_comum = vagas_comum_disponiveis;
+    
+    // Dados dos outros andares (recebidos do servidor central)
+    dados_placar.vagas_andar1_pcd = dados_terreo[0]; // Será atualizado pelo central
+    dados_placar.vagas_andar1_idoso = dados_terreo[1];
+    dados_placar.vagas_andar1_comum = dados_terreo[2];
+    dados_placar.vagas_andar2_pcd = dados_terreo[0]; // Será atualizado pelo central
+    dados_placar.vagas_andar2_idoso = dados_terreo[1];
+    dados_placar.vagas_andar2_comum = dados_terreo[2];
+    
+    // Totais
+    dados_placar.vagas_total_pcd = dados_placar.vagas_terreo_pcd + dados_placar.vagas_andar1_pcd + dados_placar.vagas_andar2_pcd;
+    dados_placar.vagas_total_idoso = dados_placar.vagas_terreo_idoso + dados_placar.vagas_andar1_idoso + dados_placar.vagas_andar2_idoso;
+    dados_placar.vagas_total_comum = dados_placar.vagas_terreo_comum + dados_placar.vagas_andar1_comum + dados_placar.vagas_andar2_comum;
+    
+    // Flags
+    dados_placar.flags = 0;
+    if (fechado) dados_placar.flags |= 0x01; // bit0 = lotado geral
+    if (comandos_central[2]) dados_placar.flags |= 0x02; // bit1 = lotado 1º andar
+    if (comandos_central[3]) dados_placar.flags |= 0x04; // bit2 = lotado 2º andar
+    
+    // Atualizar placar via MODBUS
+    if (update_placar_data(ctx_modbus, &dados_placar) == 0) {
+        // Enviar matrícula após atualização
+        send_matricula_modbus(ctx_modbus, PLACAR_ADDR, matricula_usuario);
+        log_info("Placar MODBUS atualizado");
+    } else {
+        log_erro("Falha ao atualizar placar MODBUS");
+    }
 }
 
 //Função que lê o sensor da cancela de entrada quando um carro está entrando no estacionamento
@@ -382,6 +417,13 @@ void leituraVagasTerreo(vaga *v){
         else if(fechado == 0) {
             bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO, LOW);
         }
+        
+        // Atualizar placar MODBUS periodicamente
+        static int contador_placar = 0;
+        if (++contador_placar >= 10) { // A cada 10 ciclos (500ms)
+            atualizar_placar_modbus();
+            contador_placar = 0;
+        }
     }
 }
 
@@ -390,7 +432,7 @@ void *chamaLeitura(){
 }
 
 void *enviaParametros(){
-    char *ip ="127.0.0.1";
+    char *ip ="164.41.98.2";  // IP do servidor central
     int port = 10683;
     
     int sock;

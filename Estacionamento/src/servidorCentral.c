@@ -71,112 +71,113 @@ int kbhit(void)
 
 void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRecebeSegundoAndar){
 
-   
-
     while(1){
         system("clear");
-        printf("  Vagas ocupadas:\n");
-        printf("                  | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |\n");
-        printf("                   -------------------------------\n");        
-        printf("      2º Andar: B | %d | %d | %d | %d | %d | %d | %d | %d |\n", dados_andar2[3], dados_andar2[4], dados_andar2[5], dados_andar2[6], dados_andar2[7], dados_andar2[8], dados_andar2[9], dados_andar2[10]);
-        printf("                   -------------------------------\n");   
-        printf("      1º Andar: A | %d | %d | %d | %d | %d | %d | %d | %d |\n", dados_andar1[3], dados_andar1[4], dados_andar1[5], dados_andar1[6], dados_andar1[7], dados_andar1[8], dados_andar1[9], dados_andar1[10]);
-        printf("                   -------------------------------\n");   
-        printf("      Terreo:   T | %d | %d | %d | %d | - | - | - | - |\n", dados_terreo[3], dados_terreo[4], dados_terreo[5], dados_terreo[6]);
-        printf("                   -------------------------------\n"); 
+        printf("╔══════════════════════════════════════════════════════════════════════════════╗\n");
+        printf("║                        SISTEMA DE CONTROLE DE ESTACIONAMENTO                 ║\n");
+        printf("╚══════════════════════════════════════════════════════════════════════════════╝\n\n");
+        
+        printf("  📍 MAPA DE VAGAS OCUPADAS:\n");
+        printf("                  │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │ 7 │ 8 │\n");
+        printf("                   ────────────────────────────────\n");        
+        printf("      2º Andar: B │ %d │ %d │ %d │ %d │ %d │ %d │ %d │ %d │\n", 
+               dados_andar2[3], dados_andar2[4], dados_andar2[5], dados_andar2[6], 
+               dados_andar2[7], dados_andar2[8], dados_andar2[9], dados_andar2[10]);
+        printf("                   ────────────────────────────────\n");   
+        printf("      1º Andar: A │ %d │ %d │ %d │ %d │ %d │ %d │ %d │ %d │\n", 
+               dados_andar1[3], dados_andar1[4], dados_andar1[5], dados_andar1[6], 
+               dados_andar1[7], dados_andar1[8], dados_andar1[9], dados_andar1[10]);
+        printf("                   ────────────────────────────────\n");   
+        printf("      Térreo:   T │ %d │ %d │ %d │ %d │ - │ - │ - │ - │\n", 
+               dados_terreo[3], dados_terreo[4], dados_terreo[5], dados_terreo[6]);
+        printf("                   ────────────────────────────────\n\n"); 
 
-        printf("\n  Vagas disponíveis no estacionamento:\n");
-        printf("                  | PcD | Idoso | Regular | Total |\n");
-        printf("                   -------------------------------\n"); 
-        printf("      2º Andar:   |  %d  |   %d   |    %d    |   %d   |\n", dados_andar2[0], dados_andar2[1], dados_andar2[2], dados_andar2[0]+dados_andar2[1]+dados_andar2[2]);
-        printf("                   -------------------------------\n"); 
-        printf("      1º Andar:   |  %d  |   %d   |    %d    |   %d   |\n", dados_andar1[0], dados_andar1[1], dados_andar1[2], dados_andar1[0]+dados_andar1[1]+dados_andar1[2]);
-        printf("                   -------------------------------\n"); 
-        printf("      Terreo:     |  %d  |   %d   |    %d    |   %d   |\n", dados_terreo[0], dados_terreo[1], dados_terreo[2], dados_terreo[0]+dados_terreo[1]+dados_terreo[2]);
-        printf("                   -------------------------------\n"); 
-        printf("\n  Carros no estacionamento:\n");
+        printf("  📊 VAGAS DISPONÍVEIS:\n");
+        printf("                  │ PcD │ Idoso │ Regular │ Total │\n");
+        printf("                   ────────────────────────────────\n"); 
+        printf("      2º Andar:   │  %d  │   %d   │    %d    │   %d   │\n", 
+               dados_andar2[0], dados_andar2[1], dados_andar2[2], 
+               dados_andar2[0]+dados_andar2[1]+dados_andar2[2]);
+        printf("                   ────────────────────────────────\n"); 
+        printf("      1º Andar:   │  %d  │   %d   │    %d    │   %d   │\n", 
+               dados_andar1[0], dados_andar1[1], dados_andar1[2], 
+               dados_andar1[0]+dados_andar1[1]+dados_andar1[2]);
+        printf("                   ────────────────────────────────\n"); 
+        printf("      Térreo:     │  %d  │   %d   │    %d    │   %d   │\n", 
+               dados_terreo[0], dados_terreo[1], dados_terreo[2], 
+               dados_terreo[0]+dados_terreo[1]+dados_terreo[2]);
+        printf("                   ────────────────────────────────\n\n"); 
         
-
+        printf("  🚗 CARROS NO ESTACIONAMENTO:\n");
+        printf("                  │ Total │ Térreo │ 1º andar │ 2º andar │\n");
+        printf("                  │   %d   │    %d   │     %d    │     %d    │\n", 
+               dados_terreo[18]+dados_andar1[18]+dados_andar2[18], 
+               dados_terreo[18], dados_andar1[18], dados_andar2[18]);
+        printf("                   ──────────────────────────────────────\n\n");
         
-        printf("                  | Total | Terreo | 1º andar | 2º andar | \n");
-        printf("                  |   %d   |    %d   |     %d    |     %d    | \n", dados_terreo[18]+dados_andar1[18]+dados_andar2[18] , dados_terreo[18], dados_andar1[18], dados_andar2[18]);
-        float y = (dados_andar1[16])*0.1;
-        float w = (dados_andar2[16])*0.1;
-        float z = (dados_terreo[16])*0.1; 
-        
+        // Status do sistema
         if(comandos_enviar[1] == 1){
-            printf("\n              -----------------------------------\n");
-            printf("             |      Estacionamento fechado       |\n");
-            printf("              -----------------------------------\n");
+            printf("  🚫 ESTACIONAMENTO FECHADO\n");
         }
         if(dados_andar1[20] == 1){
-            printf("\n              -----------------------------------\n");
-            printf("             |          1º andar fechado         |\n");
-            printf("              -----------------------------------\n");
+            printf("  🚫 1º ANDAR FECHADO\n");
         }
         if(dados_andar2[20] == 1){
-            printf("\n              -----------------------------------\n");
-            printf("             |          2º andar fechado         |\n");
-            printf("              -----------------------------------\n");
+            printf("  🚫 2º ANDAR FECHADO\n");
         }
+        
+        // Eventos recentes
         if(dados_andar1[14]==1){
-            printf("\n              ------------------------------------\n");
-            printf("             | Carro %d saiu da vaga A%d pagou %.2f |\n", dados_andar1[15], dados_andar1[17], y);
-            printf("              ------------------------------------\n");
+            float valor = (dados_andar1[16]) * 0.15f;
+            printf("  💰 Carro %d saiu da vaga A%d - Pagou R$ %.2f\n", 
+                   dados_andar1[15], dados_andar1[17], valor);
             delay(1500);
         }
         if(dados_andar2[14]==1){
-            printf("\n              ------------------------------------\n");
-            printf("             | Carro %d saiu da vaga B%d pagou %.2f |\n", dados_andar2[15], dados_andar2[17], w);
-            printf("              ------------------------------------\n");
+            float valor = (dados_andar2[16]) * 0.15f;
+            printf("  💰 Carro %d saiu da vaga B%d - Pagou R$ %.2f\n", 
+                   dados_andar2[15], dados_andar2[17], valor);
             delay(1500);
         }   
         if(dados_terreo[14]==1){
-            printf("\n              ------------------------------------\n");
-            printf("             | Carro %d saiu da vaga T%d pagou %.2f |\n", dados_terreo[15], dados_terreo[17], z);
-            printf("              ------------------------------------\n");
+            float valor = (dados_terreo[16]) * 0.15f;
+            printf("  💰 Carro %d saiu da vaga T%d - Pagou R$ %.2f\n", 
+                   dados_terreo[15], dados_terreo[17], valor);
             delay(1500);
         }
         if(dados_andar1[11]==1){
-            printf("\n                       ---------------------------\n");
-            printf("                      | Carro %d entrou na vaga A%d |\n", dados_andar1[12], dados_andar1[13]);
-            printf("                       ---------------------------\n");
+            printf("  🚗 Carro %d entrou na vaga A%d\n", dados_andar1[12], dados_andar1[13]);
             delay(1500);
         }
         if(dados_andar2[11]==1){
-            printf("\n                       ---------------------------\n");
-            printf("                      | Carro %d entrou na vaga B%d |\n", dados_andar2[12], dados_andar2[13]);
-            printf("                       ---------------------------\n");
+            printf("  🚗 Carro %d entrou na vaga B%d\n", dados_andar2[12], dados_andar2[13]);
             delay(1500);
         }
         if(dados_terreo[11]==1){
-            printf("\n                       ---------------------------\n");
-            printf("                      | Carro %d entrou na vaga T%d |\n", dados_terreo[12], dados_terreo[13]);
-            printf("                       ---------------------------\n");
+            printf("  🚗 Carro %d entrou na vaga T%d\n", dados_terreo[12], dados_terreo[13]);
             delay(1500);
         }
 
-        printf("\n  Opções:\n");
+        printf("\n  ⚙️  COMANDOS:\n");
         printf("  1 - Abrir estacionamento\n");
         printf("  2 - Fechar estacionamento\n");
-        printf("  3 - Ativar 1 andar\n");
-        printf("  4 - Desativar 1 andar\n");
-        printf("  5 - Ativar 2 andar\n");
-        printf("  6 - Desativar 2 andar\n");
+        printf("  3 - Ativar 1º andar\n");
+        printf("  4 - Desativar 1º andar\n");
+        printf("  5 - Ativar 2º andar\n");
+        printf("  6 - Desativar 2º andar\n");
         printf("  7 - Ver tickets temporários\n");
         printf("  8 - Ver alertas de auditoria\n");
         printf("  q - Encerrar estacionamento\n\n");      
 
-        
-        if((dados_terreo[18] == 8 && r==0 &&(dados_andar1[18]== 8 || dados_andar1[20] == 1) && (dados_andar2[18] == 8 || dados_andar2[20] == 1))){
-        comandos_enviar[1] = 1;
-        r = 1;
+        // Lógica automática de fechamento
+        if((dados_terreo[18] == 4 && r==0 && (dados_andar1[18]== 8 || dados_andar1[20] == 1) && (dados_andar2[18] == 8 || dados_andar2[20] == 1))){
+            comandos_enviar[1] = 1;
+            r = 1;
         } 
-        else if((dados_terreo[18] < 8 && r == 1 || dados_andar1[20] == 0 || dados_andar2[20] == 0)&& manual == 0){
-        comandos_enviar[1] = 0;          
-        r = 0;
+        else if((dados_terreo[18] < 4 && r == 1 || dados_andar1[20] == 0 || dados_andar2[20] == 0) && manual == 0){
+            comandos_enviar[1] = 0;          
+            r = 0;
         }
-        
 
         if(kbhit()){
             char opcao = getchar();
@@ -185,25 +186,31 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
             {
             case '1':
                 comandos_enviar[1] = 0;
-                r =0;
-                manual=0;
+                r = 0;
+                manual = 0;
+                log_info("Estacionamento aberto manualmente");
                 break;
             case '2':
                 comandos_enviar[1] = 1;
                 r = 1;
                 manual = 1;
+                log_info("Estacionamento fechado manualmente");
                 break;
             case '3':
                 comandos_enviar[2] = 0;
+                log_info("1º andar ativado");
                 break;
             case '4':
                 comandos_enviar[2] = 1;
+                log_info("1º andar desativado");
                 break;
-            case'5':
+            case '5':
                 comandos_enviar[3] = 0;
+                log_info("2º andar ativado");
                 break;
-            case'6':
+            case '6':
                 comandos_enviar[3] = 1;
+                log_info("2º andar desativado");
                 break;
             case '7':
                 mostrar_tickets_temporarios();
@@ -212,6 +219,7 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
                 mostrar_alertas_auditoria();
                 break;
             case 'q':
+                log_info("Encerrando sistema...");
                 pthread_cancel(fRecebeTerreo);
                 pthread_cancel(fRecebePrimeiroAndar);
                 pthread_cancel(fRecebeSegundoAndar);
@@ -219,7 +227,6 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
             default:
                 break;
             }
-            
         }
         printf("\n");
 
@@ -229,7 +236,7 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
 
     
 void *recebePrimeiroAndar(){
-    char *ip ="127.0.0.1";
+    char *ip ="0.0.0.0";  // Escutar em todas as interfaces
     int port = 10681;
 
     int server_sock, client_sock;
@@ -296,7 +303,7 @@ void *recebePrimeiroAndar(){
 }
 
 void *recebeSegundoAndar(){
-    char *ip ="127.0.0.1";
+    char *ip ="0.0.0.0";  // Escutar em todas as interfaces
     int port = 10682;
 
     int server_sock, client_sock;
@@ -363,7 +370,7 @@ void *recebeSegundoAndar(){
 }
 
 void *recebeTerreo(){
-    char *ip ="127.0.0.1";
+    char *ip ="0.0.0.0";  // Escutar em todas as interfaces
     int port = 10683;
 
     int server_sock, client_sock;

@@ -8,7 +8,7 @@ SRCFOLDER := src/
 # .o
 OBJFOLDER := obj/
 CC := gcc
-CFLAGS := 
+CFLAGS := -Wall -Wextra -std=c99
 LINKFLAGS := -lbcm2835 -pthread -lmodbus
 SRCFILES := $(wildcard src/*.c)
 

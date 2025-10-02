@@ -137,6 +137,10 @@ Atribuições de GPIO para cada andar estão definidas nas Tabelas 1 a 3:
 * **Câmera LPR da Saída**: endereço **0x12**
 * **Placar de Vagas**: endereço **0x20**
 
+**Obs.**: Consultar manual do MODBUS para referência do formato da mensagem de Envio e Recebimento tanto do comando (0x03) Read Holding Registers quanto do comando (0x10) Write Multiple registers.
+
+**Atenção**: É necessário enviar os 4 últimos dígitos da matrícula ao final de cada mensagem, sempre antes do CRC.
+
 ### 4.2 Mapa de Registros — Câmeras LPR (0x11 e 0x12)
 
 **Holding Registers (0x03/0x10)**
@@ -154,7 +158,7 @@ Atribuições de GPIO para cada andar estão definidas nas Tabelas 1 a 3:
 1. Mestre escreve **1** em *Trigger Captura* (offset 1).
 2. Faz *polling* em **Status** (offset 0) até **2=OK** ou **3=Erro** (timeout recomendado ≤ 2 s).
 3. Se **OK**, lê **Placa** (offset 2, 4 regs) e **Confiança** (offset 6).
-4. Zera *Trigger* (escrever 0 em offset 1, se necessário pelo dispositivo).
+4. Zera *Trigger* (escrever 0 em offset 1).
 
 <!-- > **Conversão de Placa**: cada registrador de 16 bits carrega 2 chars ASCII em **big‑endian** (ex.: `0x4C50` → `LP`). Complementar com `\0` se a placa tiver < 8 chars. -->
 
@@ -173,9 +177,9 @@ Atribuições de GPIO para cada andar estão definidas nas Tabelas 1 a 3:
 |    6   |    1    | **Vagas Livres 2º Andar (PNE)**            | u16  |
 |    7   |    1    | **Vagas Livres 2º Andar (Idoso+)**         | u16  |
 |    8   |    1    | **Vagas Livres 2º Andar (Comuns)**         | u16  |
-|    9   |    1    | **Vagas Livres Total (PNE)**               | u16  |
-|   10   |    1    | **Vagas Livres Total (Idoso+)**            | u16  |
-|   11   |    1    | **Vagas Livres Total (Comuns)**            | u16  |
+|    9   |    1    | **Número de carros: Térreo**               | u16  |
+|   10   |    1    | **Número de carros: 1º Andar**            | u16  |
+|   11   |    1    | **Número de carros: 2º Andar**            | u16  |
 |   12   |    1    | **Flags** (bit0 = lotado geral / bit1= lotado 1º andar / bit2 = lotado 2º andar) | u16  |
 
 **Observação**: o **Servidor Central** calcula os números e envia **Write Multiple Registers (0x10)** para offsets 0–11 periodicamente (p.ex. a cada 1 s) e sempre que houver mudança de estado.
@@ -266,8 +270,8 @@ Atribuições de GPIO para cada andar estão definidas nas Tabelas 1 a 3:
 
 ### 8.1 Linguagens e Bibliotecas
 
-* **Python**: `gpiozero`/`RPi.GPIO` (GPIO), `pymodbus` (MODBUS), `asyncio` (concorrência), `aiohttp`/`fastapi` (UI/API opcional).
-* **C/C++**: `pigpio`/`wiringPi`/`BCM2835` (GPIO), `libmodbus` (MODBUS), `libevent`/`asio` (rede).
+* **Python**: `gpiozero`/`RPi.GPIO` (GPIO), `asyncio` (concorrência), `aiohttp`/`fastapi` (UI/API opcional).
+* **C/C++**: `pigpio`/`wiringPi`/`BCM2835` (GPIO), `libevent`/`asio` (rede).
 
 > Fornecer **Makefile** (C/C++) ou `requirements.txt` (Python) e instruções de execução.
 
@@ -290,9 +294,15 @@ Atribuições de GPIO para cada andar estão definidas nas Tabelas 1 a 3:
 
 Abaixo estão os links para cada Dashboard vinculado às respectivas placas Raspberry Pi
 
-[Estacionamento - rasp41](https://tb.fse.lappis.rocks/dashboard/6edc7450-9a09-11f0-a4ce-1d78bb2310d8?publicId=86d17ff0-e010-11ef-9ab8-4774ff1517e8).  
-[Estacionamento - rasp48](https://tb.fse.lappis.rocks/dashboard/882b4140-9b15-11f0-a4ce-1d78bb2310d8?publicId=86d17ff0-e010-11ef-9ab8-4774ff1517e8).  
-[Estacionamento - rasp49](https://tb.fse.lappis.rocks/dashboard/af9c4d00-9b15-11f0-a4ce-1d78bb2310d8?publicId=86d17ff0-e010-11ef-9ab8-4774ff1517e8).  
+[Estacionamento - rasp40](https://tb.fse.lappis.rocks/dashboard/54159c30-9c04-11f0-a4ce-1d78bb2310d8?publicId=86d17ff0-e010-11ef-9ab8-4774ff1517e8).  
+[Estacionamento - rasp41](https://tb.fse.lappis.rocks/dashboard/362971f0-9e30-11f0-a4ce-1d78bb2310d8?publicId=86d17ff0-e010-11ef-9ab8-4774ff1517e8).  
+[Estacionamento - rasp42](https://tb.fse.lappis.rocks/dashboard/a926da80-9e30-11f0-a4ce-1d78bb2310d8?publicId=86d17ff0-e010-11ef-9ab8-4774ff1517e8).   
+[Estacionamento - rasp43](https://tb.fse.lappis.rocks/dashboard/3b17f870-9e59-11f0-a4ce-1d78bb2310d8?publicId=86d17ff0-e010-11ef-9ab8-4774ff1517e8).  
+<!-- [Estacionamento - rasp44](https://tb.fse.lappis.rocks/dashboard/b1c01980-9e59-11f0-a4ce-1d78bb2310d8?publicId=86d17ff0-e010-11ef-9ab8-4774ff1517e8).   -->
+[Estacionamento - rasp45](https://tb.fse.lappis.rocks/dashboard/ce56d340-9e59-11f0-a4ce-1d78bb2310d8?publicId=86d17ff0-e010-11ef-9ab8-4774ff1517e8).  
+[Estacionamento - rasp46](https://tb.fse.lappis.rocks/dashboard/ebaeba20-9e59-11f0-a4ce-1d78bb2310d8?publicId=86d17ff0-e010-11ef-9ab8-4774ff1517e8).  
+[Estacionamento - rasp48](https://tb.fse.lappis.rocks/dashboard/09080090-9e5a-11f0-a4ce-1d78bb2310d8?publicId=86d17ff0-e010-11ef-9ab8-4774ff1517e8).  
+[Estacionamento - rasp49](https://tb.fse.lappis.rocks/dashboard/22b4e0d0-9e5a-11f0-a4ce-1d78bb2310d8?publicId=86d17ff0-e010-11ef-9ab8-4774ff1517e8).  
 
 
 ## 10. Entrega e Avaliação
@@ -303,31 +313,32 @@ Abaixo estão os links para cada Dashboard vinculado às respectivas placas Rasp
 2. Vídeo (\~5 a 10 min) demonstrando: operação, fluxo LPR entrada/saída via MODBUS, atualização do placar e principais trechos de código.
 3. Arquivos de configuração (ex.: `.env`) com parâmetros do bus: porta serial, baudrate, endereços.
 
-<!-- ### 10.2 Critérios de Avaliação (12,0 pts + 0,5 extra)
+### 10.2 Critérios de Avaliação (12,0 pts + 0,5 extra)
 
 | ITEM                        | DETALHE                                                      | VALOR |
 | --------------------------- | ------------------------------------------------------------ | :---: |
 | **Servidor Central**        |                                                              |       |
-| Interface (Monitoramento)   | UI atualiza dados (andar, total, vagas, valor) em tempo real |  1,0  |
-| Interface (Comandos)        | Fechar estacionamento / Bloquear 2º andar                    |  1,0  |
-| Contagem de Vagas           | Correta por vaga/andar e lotação (geral e por andar)         |  1,0  |
+| Interface (Monitoramento / Comandos)   | Terminal que mostra os dados do servidor Central atualizados (mapa de vagas, número de carros em cada andar) em tempo real |  0,5  |
+| Interface (Comandos)        | Fechar estacionamento / Bloquear 1º e 2º andar               |  0,5  |
 | **Cobrança**                | Cálculo por minuto e recibo de saída                         |  1,0  |
 | **Servidores Distribuídos** |                                                              |       |
 | Vagas                       | Varredura e detecção de mudanças                             |  1,0  |
 | Cancelas                    | Sequência correta entrada/saída                              |  1,0  |
 | Passagem entre Andares      | Direção correta (1→2 sobe, 2→1 desce)                        |  1,0  |
-| **MODBUS (Novo)**           |                                                              |       |
-| Integração Câmera Entrada   | Trigger, polling, leitura de placa/confiança (0x11)          |  1,0  |
-| Integração Câmera Saída     | Trigger, polling, leitura e envio p/ cobrança (0x12)         |  1,0  |
+| **MODBUS**           |                                                                     |       |
+| Integração Câmera Entrada / Saída | Trigger, polling, leitura de placa/confiança (0x11)    |  1,0  |
 | Integração Placar           | Escrita periódica de vagas e flags (0x20)                    |  1,0  |
 | Robustez Bus                | Tratamento de timeout/CRC, retries, logs                     |  1,0  |
 | **Geral**                   |                                                              |       |
 | Confiabilidade              | Reconexão TCP/IP automática, serviços independentes          |  0,5  |
-| Qualidade do Código         | Nomes, modularização, desempenho                             |  1,5  |
-| **Extra**                   | Usabilidade/qualidade acima da média                         |  0,5  |
+| Qualidade do Código / Documentação  | Nomes, modularização, desempenho / README completo com instuções de execução e modo de funcionamento.                     |  1,5  |
+| **Extra 1**                   | Usabilidade/qualidade acima da média                         |  0,5  |
+| **Extra 2**                   | Implementação de política de tratamento de confiança de leitura das câmeras abaixo de 60%                         |  0,5  |
 
---- -->
+---
 
 ## 11. Referências Técnicas Sugeridas
 
-* Documentação das bibliotecas GPIO e MODBUS escolhidas (p.ex. `gpiozero`, `RPi.GPIO`, `pigpio`, `libmodbus`, `pymodbus`).
+* Documentação das bibliotecas GPIO e MODBUS escolhidas (p.ex. `gpiozero`, `RPi.GPIO`, `pigpio`).
+
+* Documentação do MODBUS: [MODBUS APPLICATION PROTOCOL SPECIFICATION V1.1b3](https://www.afs.enea.it/project/protosphera/Proto-Sphera_Full_Documents/mpdocs/docs_EEI/Modbus_Application_Protocol_V1_1b3.pdf)

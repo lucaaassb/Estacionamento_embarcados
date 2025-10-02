@@ -85,5 +85,6 @@ int read_placar_data(modbus_t* ctx, placar_data_t* data);
 void convert_placa_from_registers(uint16_t* registers, char* placa);
 void convert_placa_to_registers(const char* placa, uint16_t* registers);
 int modbus_retry_operation(modbus_t* ctx, int (*operation)(modbus_t*, void*), void* data, int max_retries);
+int send_matricula_modbus(modbus_t* ctx, int slave_addr, const char* matricula);
 
 #endif

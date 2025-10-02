@@ -416,7 +416,7 @@ void *chamaLeitura2(){
 }
 
 void *enviaParametros2(){
-    char *ip ="127.0.0.1";
+    char *ip ="164.41.98.2";  // IP do servidor central
     int port = 10682;
     
     int sock;

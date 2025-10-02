@@ -146,7 +146,7 @@ int capture_license_plate(modbus_t* ctx, int camera_addr, lpr_data_t* data, int 
     return -1;
 }
 
-// Atualiza dados do placar
+// Atualiza dados do placar com matrícula
 int update_placar_data(modbus_t* ctx, const placar_data_t* data) {
     uint16_t registers[13];
     
@@ -154,7 +154,7 @@ int update_placar_data(modbus_t* ctx, const placar_data_t* data) {
         return -1;
     }
     
-    // Preparar registros
+    // Preparar registros conforme README
     registers[VAGAS_TERREO_PCD] = data->vagas_terreo_pcd;
     registers[VAGAS_TERREO_IDOSO] = data->vagas_terreo_idoso;
     registers[VAGAS_TERREO_COMUM] = data->vagas_terreo_comum;
@@ -169,8 +169,8 @@ int update_placar_data(modbus_t* ctx, const placar_data_t* data) {
     registers[VAGAS_TOTAL_COMUM] = data->vagas_total_comum;
     registers[FLAGS_REG] = data->flags;
     
-    // Escrever múltiplos registros
-    if (modbus_write_registers(ctx, 0, 13, registers) == -1) {
+    // Escrever múltiplos registros (0x10)
+    if (modbus_write_registers(ctx, 0, 12, registers) == -1) {
         fprintf(stderr, "Erro ao atualizar placar: %s\n", modbus_strerror(errno));
         return -1;
     }
@@ -221,4 +221,33 @@ int modbus_retry_operation(modbus_t* ctx, int (*operation)(modbus_t*, void*), vo
         }
     }
     return -1; // Falha após todas as tentativas
+}
+
+// Função para enviar matrícula nas mensagens MODBUS
+int send_matricula_modbus(modbus_t* ctx, int slave_addr, const char* matricula) {
+    if (!ctx || !matricula) return -1;
+    
+    // Extrair últimos 4 dígitos da matrícula
+    int len = strlen(matricula);
+    if (len < 4) return -1;
+    
+    char ultimos_4[5];
+    strncpy(ultimos_4, matricula + len - 4, 4);
+    ultimos_4[4] = '\0';
+    
+    // Converter para uint16_t
+    uint16_t matricula_value = (uint16_t)atoi(ultimos_4);
+    
+    if (modbus_set_slave(ctx, slave_addr) == -1) {
+        return -1;
+    }
+    
+    // Enviar matrícula em um registro específico (ex: registro 15)
+    if (modbus_write_register(ctx, 15, matricula_value) == -1) {
+        fprintf(stderr, "Erro ao enviar matrícula: %s\n", modbus_strerror(errno));
+        return -1;
+    }
+    
+    printf("Matrícula %s enviada para dispositivo 0x%02X\n", ultimos_4, slave_addr);
+    return 0;
 }
