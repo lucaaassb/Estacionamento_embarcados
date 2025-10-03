@@ -16,13 +16,13 @@
 
 
 //ANDAR 2
-#define ENDERECO_01 RPI_V2_GPIO_P1_21                       // PINO 09 - SAÍDA
-#define ENDERECO_02 RPI_GPIO_P1_23                          // PINO 11 - SAÍDA
-#define ENDERECO_03 RPI_GPIO_P1_10                          // PINO 15 - SAÍDA
-#define SENSOR_DE_VAGA RPI_GPIO_P1_05                       // PINO 01 - ENTRADA
-#define SENSOR_DE_PASSAGEM_1 RPI_GPIO_P1_03              //pino 00
-#define SENSOR_DE_PASSAGEM_2 RPI_GPIO_P1_26                 // PINO 07 - ENTRADA
-#define SINAL_DE_LOTADO_FECHADO2 RPI_V2_GPIO_P1_08          // PINO 14 - SAÍDA
+#define ENDERECO_01 RPI_GPIO_P1_00                          // PINO 00 - SAÍDA
+#define ENDERECO_02 RPI_GPIO_P1_05                          // PINO 05 - SAÍDA
+#define ENDERECO_03 RPI_GPIO_P1_06                          // PINO 06 - SAÍDA
+#define SENSOR_DE_VAGA RPI_GPIO_P1_13                       // PINO 13 - ENTRADA
+#define SENSOR_DE_PASSAGEM_1 RPI_GPIO_P1_19                 // PINO 19 - ENTRADA
+#define SENSOR_DE_PASSAGEM_2 RPI_GPIO_P1_26                 // PINO 26 - ENTRADA
+#define SINAL_DE_LOTADO_FECHADO2 RPI_GPIO_P1_14             // PINO 14 - SAÍDA
 
 void configuraPinos2(){
     bcm2835_gpio_fsel(ENDERECO_01, BCM2835_GPIO_FSEL_OUTP);

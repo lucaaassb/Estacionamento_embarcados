@@ -21,11 +21,12 @@
 #define ENDERECO_02 RPI_V2_GPIO_P1_12                       // PINO 18 - SAÍDA
 #define SENSOR_DE_VAGA RPI_GPIO_P1_03                       // PINO 08 - ENTRADA
 #define SENSOR_ABERTURA_CANCELA_ENTRADA RPI_GPIO_P1_07      // PINO 07 - ENTRADA
-#define SENSOR_FECHAMENTO_CANCELA_ENTRADA RPI_GPIO_P1_18    // PINO 01 - ENTRADA
+#define SENSOR_FECHAMENTO_CANCELA_ENTRADA RPI_GPIO_P1_01    // PINO 01 - ENTRADA
 #define MOTOR_CANCELA_ENTRADA RPI_GPIO_P1_16                // PINO 23 - SAÍDA
 #define SENSOR_ABERTURA_CANCELA_SAIDA RPI_V2_GPIO_P1_19     // PINO 12 - ENTRADA
 #define SENSOR_FECHAMENTO_CANCELA_SAIDA RPI_GPIO_P1_26      // PINO 25 - ENTRADA
-#define MOTOR_CANCELA_SAIDA RPI_GPIO_P1_18                  // PINO 24 - SAÍDA
+#define MOTOR_CANCELA_SAIDA RPI_GPIO_P1_24                  // PINO 24 - SAÍDA
+#define SINAL_DE_LOTADO_FECHADO RPI_GPIO_P1_22              // PINO 22 - SAÍDA
 
 void configuraPinos(){
     bcm2835_gpio_fsel(ENDERECO_01, BCM2835_GPIO_FSEL_OUTP);
@@ -37,6 +38,7 @@ void configuraPinos(){
     bcm2835_gpio_fsel(SENSOR_ABERTURA_CANCELA_SAIDA, BCM2835_GPIO_FSEL_INPT);
     bcm2835_gpio_fsel(SENSOR_FECHAMENTO_CANCELA_SAIDA, BCM2835_GPIO_FSEL_INPT);
     bcm2835_gpio_fsel(MOTOR_CANCELA_SAIDA, BCM2835_GPIO_FSEL_OUTP);
+    bcm2835_gpio_fsel(SINAL_DE_LOTADO_FECHADO, BCM2835_GPIO_FSEL_OUTP);
 }
 // Usar a estrutura melhorada do common_utils.h
 typedef vaga_estacionamento_t vaga;
@@ -356,7 +358,6 @@ void leituraVagasTerreo(vaga *v){
         //Primeira vaga
         bcm2835_gpio_write(ENDERECO_01, LOW);
         bcm2835_gpio_write(ENDERECO_02, LOW);
-        bcm2835_gpio_write(ENDERECO_03, LOW);
         delay(50);
         valor_sensor_vaga = bcm2835_gpio_lev(SENSOR_DE_VAGA);
         if(valor_sensor_vaga == 1)
@@ -368,7 +369,6 @@ void leituraVagasTerreo(vaga *v){
         //Segunda vaga
         bcm2835_gpio_write(ENDERECO_01, HIGH);
         bcm2835_gpio_write(ENDERECO_02, LOW);
-        bcm2835_gpio_write(ENDERECO_03, LOW);
         delay(50);
         valor_sensor_vaga = bcm2835_gpio_lev(SENSOR_DE_VAGA);
         if(valor_sensor_vaga == 1)
@@ -379,7 +379,6 @@ void leituraVagasTerreo(vaga *v){
         //Terceira vaga
         bcm2835_gpio_write(ENDERECO_01, LOW);
         bcm2835_gpio_write(ENDERECO_02, HIGH);
-        bcm2835_gpio_write(ENDERECO_03, LOW);
         delay(50);
         valor_sensor_vaga = bcm2835_gpio_lev(SENSOR_DE_VAGA);
         if(valor_sensor_vaga == 1)
@@ -390,7 +389,6 @@ void leituraVagasTerreo(vaga *v){
         //Quarta vaga
         bcm2835_gpio_write(ENDERECO_01, HIGH);
         bcm2835_gpio_write(ENDERECO_02, HIGH);
-        bcm2835_gpio_write(ENDERECO_03, LOW);
         delay(50);
         valor_sensor_vaga = bcm2835_gpio_lev(SENSOR_DE_VAGA);
         if(valor_sensor_vaga == 1)
