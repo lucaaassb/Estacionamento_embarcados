@@ -72,7 +72,7 @@ int serialize_entrada_ok(const entrada_ok_t* entrada, char* json_buffer, size_t 
         entrada->ts,
         entrada->andar);
     
-    return (result < buffer_size) ? 0 : -1;
+    return (result >= 0 && (size_t)result < buffer_size) ? 0 : -1;
 }
 
 // Serialização de saída OK
@@ -93,7 +93,7 @@ int serialize_saida_ok(const saida_ok_t* saida, char* json_buffer, size_t buffer
         saida->ts,
         saida->andar);
     
-    return (result < buffer_size) ? 0 : -1;
+    return (result >= 0 && (size_t)result < buffer_size) ? 0 : -1;
 }
 
 // Serialização de status de vagas
@@ -118,7 +118,7 @@ int serialize_vaga_status(const vaga_status_t* status, char* json_buffer, size_t
         status->flags.lotado ? "true" : "false",
         status->flags.bloq2 ? "true" : "false");
     
-    return (result < buffer_size) ? 0 : -1;
+    return (result >= 0 && (size_t)result < buffer_size) ? 0 : -1;
 }
 
 // Serialização de passagem
@@ -137,7 +137,7 @@ int serialize_passagem(const passagem_t* passagem, char* json_buffer, size_t buf
         passagem->andar_destino,
         passagem->ts);
     
-    return (result < buffer_size) ? 0 : -1;
+    return (result >= 0 && (size_t)result < buffer_size) ? 0 : -1;
 }
 
 // Serialização de alerta
@@ -156,7 +156,7 @@ int serialize_alerta(const alerta_t* alerta, char* json_buffer, size_t buffer_si
         alerta->placa,
         alerta->ts);
     
-    return (result < buffer_size) ? 0 : -1;
+    return (result >= 0 && (size_t)result < buffer_size) ? 0 : -1;
 }
 
 // Deserialização de entrada OK

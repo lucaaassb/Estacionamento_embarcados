@@ -452,7 +452,7 @@ void *enviaParametros(){
     
     int sock;
     struct sockaddr_in addr;
-    socklen_t addr_size;
+    // socklen_t addr_size; // não utilizado
 
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if(sock < 0){

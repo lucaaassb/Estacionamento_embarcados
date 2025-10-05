@@ -174,7 +174,7 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
             comandos_enviar[1] = 1;
             r = 1;
         } 
-        else if((dados_terreo[18] < 4 && r == 1 || dados_andar1[20] == 0 || dados_andar2[20] == 0) && manual == 0){
+        else if(((dados_terreo[18] < 4 && r == 1) || dados_andar1[20] == 0 || dados_andar2[20] == 0) && manual == 0){
             comandos_enviar[1] = 0;          
             r = 0;
         }
@@ -230,6 +230,8 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
         }
         printf("\n");
 
+        // Enviar comandos para clientes (terreo/andares) após montar status
+        send(client_sock, comandos_enviar, TAMANHO_VETOR_ENVIAR * sizeof(int), 0);
         delay(1000);
     }  
 }
