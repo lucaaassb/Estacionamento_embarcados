@@ -15,13 +15,13 @@
 #include "json_utils.h"
 
 //ANDAR 1
-#define ENDERECO_01 RPI_V2_GPIO_P1_16                       // PINO 16 - SAÍDA
-#define ENDERECO_02 RPI_GPIO_P1_20                          // PINO 20 - SAÍDA (compatibilidade bcm2835)
-#define ENDERECO_03 RPI_V2_GPIO_P1_21                       // PINO 21 - SAÍDA
-#define SENSOR_DE_VAGA RPI_GPIO_P1_27                       // PINO 27 - ENTRADA (compatibilidade bcm2835)
-#define SENSOR_DE_PASSAGEM_1 RPI_V2_GPIO_P1_22              // PINO 22 - ENTRADA
-#define SENSOR_DE_PASSAGEM_2 RPI_V2_GPIO_P1_11              // PINO 11 - ENTRADA
-#define SINAL_DE_LOTADO_FECHADO1 RPI_GPIO_P1_08             // PINO 08 - SAÍDA
+#define ENDERECO_01 RPI_V2_GPIO_P1_16                       // PINO físico 16 (GPIO23) - SAÍDA
+#define ENDERECO_02 RPI_V2_GPIO_P1_38                       // PINO físico 38 (GPIO20) - SAÍDA
+#define ENDERECO_03 RPI_V2_GPIO_P1_40                       // PINO físico 40 (GPIO21) - SAÍDA
+#define SENSOR_DE_VAGA RPI_V2_GPIO_P1_13                    // PINO físico 13 (GPIO27) - ENTRADA
+#define SENSOR_DE_PASSAGEM_1 RPI_V2_GPIO_P1_22              // PINO físico 22 (GPIO25) - ENTRADA
+#define SENSOR_DE_PASSAGEM_2 RPI_V2_GPIO_P1_11              // PINO físico 11 (GPIO17) - ENTRADA
+#define SINAL_DE_LOTADO_FECHADO1 RPI_V2_GPIO_P1_08          // PINO físico 8  (GPIO14) - SAÍDA
 
 void configuraPinos1(){
     bcm2835_gpio_fsel(ENDERECO_01, BCM2835_GPIO_FSEL_OUTP);
