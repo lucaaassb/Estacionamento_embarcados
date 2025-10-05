@@ -26,7 +26,7 @@ all: dirs $(SRCFILES:src/%.c=obj/%.o)
 	$(CC) $(CFLAGS) obj/*.o -o bin/main $(LINKFLAGS)
 
 obj/%.o: src/%.c
-	$(CC) $(CFLAGS) $(MODBUS_CFLAGS) -c $< -o $@ -I./inc
+	$(CC) $(CFLAGS) $(MODBUS_CFLAGS) $(EXTRA_CFLAGS) -c $< -o $@ -I./inc
 	
 dirs:
 	mkdir -p obj bin

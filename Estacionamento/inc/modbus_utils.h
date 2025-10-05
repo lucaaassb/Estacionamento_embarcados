@@ -1,7 +1,12 @@
 #ifndef MODBUS_UTILS_H
 #define MODBUS_UTILS_H
 
+#ifndef NO_MODBUS
 #include <modbus.h>
+#else
+// Stub mínimo quando libmodbus não está disponível
+typedef struct { int _stub; } modbus_t;
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

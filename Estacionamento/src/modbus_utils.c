@@ -2,6 +2,7 @@
 #include <time.h>
 
 // Inicializa conexão MODBUS
+#ifndef NO_MODBUS
 modbus_t* init_modbus_connection(const char* device, int baudrate) {
     modbus_t* ctx = modbus_new_rtu(device, baudrate, 'N', 8, 1);
     if (ctx == NULL) {
@@ -251,3 +252,18 @@ int send_matricula_modbus(modbus_t* ctx, int slave_addr, const char* matricula) 
     printf("Matrícula %s enviada para dispositivo 0x%02X\n", ultimos_4, slave_addr);
     return 0;
 }
+#else
+// Implementações stub quando NO_MODBUS está definido
+modbus_t* init_modbus_connection(const char* device, int baudrate) {
+    (void)device; (void)baudrate; return NULL;
+}
+void close_modbus_connection(modbus_t* ctx) { (void)ctx; }
+int trigger_camera_capture(modbus_t* ctx, int camera_addr) { (void)ctx; (void)camera_addr; return 0; }
+int read_camera_status(modbus_t* ctx, int camera_addr) { (void)ctx; (void)camera_addr; return CAMERA_OK; }
+int read_camera_data(modbus_t* ctx, int camera_addr, lpr_data_t* data) { (void)ctx; (void)camera_addr; if (data){ strcpy(data->placa, "TESTE123"); data->confianca=100; data->status=CAMERA_OK; data->erro=0; } return 0; }
+int capture_license_plate(modbus_t* ctx, int camera_addr, lpr_data_t* data, int timeout_ms) { (void)timeout_ms; return read_camera_data(ctx, camera_addr, data); }
+int update_placar_data(modbus_t* ctx, const placar_data_t* data) { (void)ctx; (void)data; return 0; }
+int read_placar_data(modbus_t* ctx, placar_data_t* data) { (void)ctx; if(data){ memset(data,0,sizeof(*data)); } return 0; }
+int modbus_retry_operation(modbus_t* ctx, int (*operation)(modbus_t*, void*), void* data, int max_retries) { (void)ctx; (void)operation; (void)data; (void)max_retries; return 0; }
+int send_matricula_modbus(modbus_t* ctx, int slave_addr, const char* matricula) { (void)ctx; (void)slave_addr; (void)matricula; return 0; }
+#endif
