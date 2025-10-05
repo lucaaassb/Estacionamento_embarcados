@@ -9,14 +9,24 @@ SRCFOLDER := src/
 OBJFOLDER := obj/
 CC := gcc
 CFLAGS := -Wall -Wextra -std=c99
-LINKFLAGS := -lbcm2835 -pthread -lmodbus
+
+# Detecta flags do libmodbus via pkg-config (se disponível)
+MODBUS_CFLAGS := $(shell pkg-config --cflags libmodbus 2>/dev/null)
+MODBUS_LIBS := $(shell pkg-config --libs libmodbus 2>/dev/null)
+
+# Fallback caso pkg-config não esteja disponível
+ifeq ($(strip $(MODBUS_LIBS)),)
+  MODBUS_LIBS := -lmodbus
+endif
+
+LINKFLAGS := -lbcm2835 -pthread $(MODBUS_LIBS)
 SRCFILES := $(wildcard src/*.c)
 
 all: dirs $(SRCFILES:src/%.c=obj/%.o)
 	$(CC) $(CFLAGS) obj/*.o -o bin/main $(LINKFLAGS)
 
 obj/%.o: src/%.c
-	$(CC) $(CFLAGS) -c $< -o $@ -I./inc $(LINKFLAGS)
+	$(CC) $(CFLAGS) $(MODBUS_CFLAGS) -c $< -o $@ -I./inc
 	
 dirs:
 	mkdir -p obj bin
