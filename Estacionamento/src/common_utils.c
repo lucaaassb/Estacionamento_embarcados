@@ -152,7 +152,11 @@ int gerar_ticket_temporario(const char* placa, int confianca, int vaga, int anda
     ticket->ativo = true;
     
     ticket_count++;
-    log_info("Ticket temporário gerado: ID %d, Placa %s", ticket->ticket_id, placa);
+    {
+        char log_msg[96];
+        snprintf(log_msg, sizeof(log_msg), "Ticket temporário gerado: ID %d, Placa %s", ticket->ticket_id, placa);
+        log_info(log_msg);
+    }
     return ticket->ticket_id;
 }
 
@@ -179,7 +183,11 @@ void desativar_ticket(int ticket_id) {
     ticket_temporario_t* ticket = buscar_ticket_por_id(ticket_id);
     if (ticket) {
         ticket->ativo = false;
-        log_info("Ticket %d desativado", ticket_id);
+        {
+            char log_msg[64];
+            snprintf(log_msg, sizeof(log_msg), "Ticket %d desativado", ticket_id);
+            log_info(log_msg);
+        }
     }
 }
 
@@ -208,10 +216,15 @@ void sinalizar_alerta_auditoria(const char* placa, const char* motivo, int tipo_
     alerta->resolvido = false;
     
     alerta_count++;
-    log_erro("Alerta de auditoria: %s - %s", placa, motivo);
+    {
+        char log_msg[160];
+        snprintf(log_msg, sizeof(log_msg), "Alerta de auditoria: %s - %s", placa, motivo);
+        log_erro(log_msg);
+    }
 }
 
 int buscar_correspondencia_entrada(const char* placa_saida) {
+    (void)placa_saida;
     // Implementação simplificada - em um sistema real, seria uma busca em banco de dados
     // Por enquanto, sempre retorna 0 (sem correspondência)
     return 0;
@@ -231,7 +244,11 @@ void resolver_alerta_auditoria(int alerta_id) {
     for (int i = 0; i < alerta_count; i++) {
         if (alertas_auditoria[i].timestamp == alerta_id) {
             alertas_auditoria[i].resolvido = true;
-            log_info("Alerta %d resolvido", alerta_id);
+            {
+                char log_msg[64];
+                snprintf(log_msg, sizeof(log_msg), "Alerta %d resolvido", alerta_id);
+                log_info(log_msg);
+            }
             break;
         }
     }
@@ -243,6 +260,7 @@ bool validar_correspondencia_entrada_saida(const char* placa_entrada, const char
 }
 
 int buscar_entrada_por_placa(const char* placa) {
+    (void)placa;
     // Implementação simplificada - em um sistema real, seria uma busca em banco de dados
     return 0;
 }
