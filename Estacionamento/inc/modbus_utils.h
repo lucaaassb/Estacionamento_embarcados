@@ -1,6 +1,7 @@
 #ifndef MODBUS_UTILS_H
 #define MODBUS_UTILS_H
 
+#include <stdint.h>
 #ifndef NO_MODBUS
 #include <modbus.h>
 #else
