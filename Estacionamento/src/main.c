@@ -18,7 +18,7 @@ int mainD();
 
 
 int main(int argc, char **argv){
-
+    (void)argc;
     char opcao = argv[1][0];
 
     if(opcao == 't'){

@@ -496,7 +496,6 @@ void mostrar_alertas_auditoria() {
         printf("Placa\t\tMotivo\t\t\t\tTipo\tTimestamp\n");
         printf("--------------------------------------------------------\n");
         for (int i = 0; i < count; i++) {
-            const char* tipo_str[] = {"", "Sem correspondência", "Placa inválida", "Erro sistema"};
             printf("%s\t\t%s\t\t%d\t%s", 
                    alertas[i].placa_veiculo,
                    alertas[i].motivo,
@@ -514,7 +513,7 @@ int mainC(){
     init_log_system();
     log_info("Iniciando servidor central");
     
-    pthread_t fMenu,fRecebePrimeiroAndar, fRecebeSegundoAndar, fRecebeTerreo;
+    pthread_t fRecebePrimeiroAndar, fRecebeSegundoAndar, fRecebeTerreo;
     
     log_info("Criando threads do servidor central");
     pthread_create(&fRecebePrimeiroAndar, NULL, recebePrimeiroAndar, NULL);
