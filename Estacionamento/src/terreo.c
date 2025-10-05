@@ -16,17 +16,17 @@
 #include "json_utils.h"
 
 
-//ANDAR TÉRREO - Conforme Tabela 1 do README
-#define ENDERECO_01 RPI_GPIO_P1_11                          // PINO 17 - SAÍDA
-#define ENDERECO_02 RPI_V2_GPIO_P1_12                       // PINO 18 - SAÍDA
-#define SENSOR_DE_VAGA RPI_GPIO_P1_03                       // PINO 08 - ENTRADA
-#define SENSOR_ABERTURA_CANCELA_ENTRADA RPI_GPIO_P1_07      // PINO 07 - ENTRADA
-#define SENSOR_FECHAMENTO_CANCELA_ENTRADA RPI_GPIO_P1_01    // PINO 01 - ENTRADA
-#define MOTOR_CANCELA_ENTRADA RPI_GPIO_P1_16                // PINO 23 - SAÍDA
-#define SENSOR_ABERTURA_CANCELA_SAIDA RPI_V2_GPIO_P1_19     // PINO 12 - ENTRADA
-#define SENSOR_FECHAMENTO_CANCELA_SAIDA RPI_GPIO_P1_26      // PINO 25 - ENTRADA
-#define MOTOR_CANCELA_SAIDA RPI_GPIO_P1_24                  // PINO 24 - SAÍDA
-#define SINAL_DE_LOTADO_FECHADO RPI_GPIO_P1_22              // PINO 22 - SAÍDA
+// ANDAR TÉRREO - usar identificadores válidos RPI_V2_GPIO_P1_XX
+#define ENDERECO_01 RPI_V2_GPIO_P1_11                       // PINO físico 11 (GPIO17) - SAÍDA
+#define ENDERECO_02 RPI_V2_GPIO_P1_12                       // PINO físico 12 (GPIO18) - SAÍDA
+#define SENSOR_DE_VAGA RPI_V2_GPIO_P1_03                    // PINO físico 3  (GPIO2)  - ENTRADA
+#define SENSOR_ABERTURA_CANCELA_ENTRADA RPI_V2_GPIO_P1_07   // PINO físico 7  (GPIO4)  - ENTRADA
+#define SENSOR_FECHAMENTO_CANCELA_ENTRADA RPI_V2_GPIO_P1_13 // PINO físico 13 (GPIO27) - ENTRADA
+#define MOTOR_CANCELA_ENTRADA RPI_V2_GPIO_P1_16             // PINO físico 16 (GPIO23) - SAÍDA
+#define SENSOR_ABERTURA_CANCELA_SAIDA RPI_V2_GPIO_P1_19     // PINO físico 19 (GPIO10) - ENTRADA
+#define SENSOR_FECHAMENTO_CANCELA_SAIDA RPI_V2_GPIO_P1_26   // PINO físico 26 (GPIO7)  - ENTRADA
+#define MOTOR_CANCELA_SAIDA RPI_V2_GPIO_P1_24               // PINO físico 24 (GPIO8)  - SAÍDA
+#define SINAL_DE_LOTADO_FECHADO RPI_V2_GPIO_P1_22           // PINO físico 22 (GPIO25) - SAÍDA
 
 void configuraPinos(){
     bcm2835_gpio_fsel(ENDERECO_01, BCM2835_GPIO_FSEL_OUTP);
@@ -88,6 +88,7 @@ int separaIguala(){
     dados_terreo[18] = estatisticas_vagas.somaVagas;
     fechado = comandos_central[1];
     dados_terreo[19] = comandos_central[4];    
+    return 0;
 }
 
 // Função para atualizar placar MODBUS
@@ -153,7 +154,9 @@ void * sensorEntrada(){
                                                               dados_camera_entrada.confianca, 
                                                               0, 0); // Vaga será definida quando estacionar
                         if (ticket_id > 0) {
-                            log_info("Ticket temporário gerado para entrada: %d", ticket_id);
+                            char log_msg[80];
+                            snprintf(log_msg, sizeof(log_msg), "Ticket temporário gerado para entrada: %d", ticket_id);
+                            log_info(log_msg);
                         }
                     }
                 } else {
@@ -161,7 +164,9 @@ void * sensorEntrada(){
                     // Gerar ticket temporário para falha de captura
                     int ticket_id = gerar_ticket_temporario("FALHA", 0, 0, 0);
                     if (ticket_id > 0) {
-                        log_info("Ticket temporário gerado para falha de captura: %d", ticket_id);
+                        char log_msg[96];
+                        snprintf(log_msg, sizeof(log_msg), "Ticket temporário gerado para falha de captura: %d", ticket_id);
+                        log_info(log_msg);
                     }
                 }
             }
@@ -179,6 +184,7 @@ void * sensorEntrada(){
         }
             
     }
+    return NULL;
 }
 
 //Função que lê o sensor da cancela de saída quando um carro está saindo do estacionamento
@@ -218,6 +224,7 @@ void * sensorSaida(){
             dados_terreo[19]=0;
         }
     }
+    return NULL;
 }
 
 //Função que verifica quais vagas estão ocupadas (TÉRREO: 4 vagas)
@@ -264,6 +271,7 @@ void * vagasDisponiveis(vaga *v){
             vagas_pcd_disponiveis=1;
             v[0].ocupada=0;
         }
+    return NULL;
 }
 
 //Função que verifica a mudança de estado das vagas
@@ -295,7 +303,11 @@ void pagamento(int g, vaga *v){
     evento.confianca_leitura = v[g-1].confianca_leitura;
     
     salvar_evento_arquivo(&evento);
-    log_info("Carro saiu - Vaga: %d, Tempo: %d min, Valor: R$ %.2f", g, v[g-1].tempo_permanencia_minutos, valor_pago);
+    {
+        char log_msg[112];
+        snprintf(log_msg, sizeof(log_msg), "Carro saiu - Vaga: %d, Tempo: %d min, Valor: R$ %.2f", g, v[g-1].tempo_permanencia_minutos, valor_pago);
+        log_info(log_msg);
+    }
     
     dados_terreo[14]=1;
     dados_terreo[15]=v[g-1].numero_carro;
@@ -332,7 +344,11 @@ void buscaCarro(int f , vaga *v){
     evento.confianca_leitura = v[f-1].confianca_leitura;
     
     salvar_evento_arquivo(&evento);
-    log_info("Carro entrou - Vaga: %d, Placa: %s", f, v[f-1].placa_veiculo);
+    {
+        char log_msg[96];
+        snprintf(log_msg, sizeof(log_msg), "Carro entrou - Vaga: %d, Placa: %s", f, v[f-1].placa_veiculo);
+        log_info(log_msg);
+    }
     
     dados_terreo[11] = 1;
     dados_terreo[13] = f;
@@ -426,7 +442,8 @@ void leituraVagasTerreo(vaga *v){
 }
 
 void *chamaLeitura(){
-    leituraVagasTerreo(v);
+    leituraVagasTerreo(vagas_terreo);
+    return NULL;
 }
 
 void *enviaParametros(){
@@ -499,6 +516,7 @@ void *enviaParametros(){
     }
     close(sock);
     printf("Disconnected from server\n");
+    return NULL;
 }
 
 int mainT(){
