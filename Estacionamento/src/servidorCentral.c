@@ -16,10 +16,10 @@
 
 #define TAMANHO_VETOR_RECEBER 23
 #define TAMANHO_VETOR_ENVIAR 5
-int dados_terreo[TAMANHO_VETOR_RECEBER];
-int dados_andar1[TAMANHO_VETOR_RECEBER];
-int dados_andar2[TAMANHO_VETOR_RECEBER];
-int comandos_enviar[TAMANHO_VETOR_ENVIAR];
+static int dados_terreo[TAMANHO_VETOR_RECEBER];
+static int dados_andar1[TAMANHO_VETOR_RECEBER];
+static int dados_andar2[TAMANHO_VETOR_RECEBER];
+static int comandos_enviar[TAMANHO_VETOR_ENVIAR];
 int r = 0;
 int manual =  0;
 

@@ -50,8 +50,8 @@ int soma_valores_anterior_andar1 = 0;
 #define TAMANHO_VETOR_ENVIAR 23
 #define TAMANHO_VETOR_RECEBER 5
 
-int dados_andar1[TAMANHO_VETOR_ENVIAR];
-int comandos_central[TAMANHO_VETOR_RECEBER];
+static int dados_andar1[TAMANHO_VETOR_ENVIAR];
+static int comandos_central[TAMANHO_VETOR_RECEBER];
 
 
 int separaIguala1(){

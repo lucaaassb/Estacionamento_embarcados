@@ -67,8 +67,8 @@ char matricula_usuario[10] = "202017700"; // Matrícula do usuário
 #define TAMANHO_VETOR_ENVIAR 22
 #define TAMANHO_VETOR_RECEBER 5
 
-int dados_terreo[TAMANHO_VETOR_ENVIAR];
-int comandos_central[TAMANHO_VETOR_RECEBER];
+static int dados_terreo[TAMANHO_VETOR_ENVIAR];
+static int comandos_central[TAMANHO_VETOR_RECEBER];
 int fechado = 0;
 
 int separaIguala(){

@@ -19,6 +19,12 @@ ifeq ($(strip $(MODBUS_LIBS)),)
   MODBUS_LIBS := -lmodbus
 endif
 
+ifdef EXTRA_CFLAGS
+  ifneq (,$(findstring -DNO_MODBUS,$(EXTRA_CFLAGS)))
+    MODBUS_LIBS :=
+  endif
+endif
+
 LINKFLAGS := -lbcm2835 -pthread $(MODBUS_LIBS)
 SRCFILES := $(wildcard src/*.c)
 
