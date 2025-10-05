@@ -23,6 +23,10 @@ static int comandos_enviar[TAMANHO_VETOR_ENVIAR];
 int r = 0;
 int manual =  0;
 
+// Protótipos
+void mostrar_tickets_temporarios();
+void mostrar_alertas_auditoria();
+
 
 /*
 parametros[0] = vagas disponiveis pcd;       parametros[10] = v[7].ocupado;
@@ -230,8 +234,6 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
         }
         printf("\n");
 
-        // Enviar comandos para clientes (terreo/andares) após montar status
-        send(client_sock, comandos_enviar, TAMANHO_VETOR_ENVIAR * sizeof(int), 0);
         delay(1000);
     }  
 }
@@ -297,6 +299,8 @@ void *recebePrimeiroAndar(){
         char response_json[512];
         serialize_vaga_status(&status_resposta, response_json, sizeof(response_json));
         send_json_message(client_sock, response_json);
+        // Enviar comandos para o 1º andar
+        send(client_sock, comandos_enviar, TAMANHO_VETOR_ENVIAR * sizeof(int), 0);
         
         delay(1000);
     }
@@ -364,6 +368,8 @@ void *recebeSegundoAndar(){
         char response_json[512];
         serialize_vaga_status(&status_resposta, response_json, sizeof(response_json));
         send_json_message(client_sock, response_json);
+        // Enviar comandos para o 2º andar
+        send(client_sock, comandos_enviar, TAMANHO_VETOR_ENVIAR * sizeof(int), 0);
         
         delay(1000);
     }
@@ -433,7 +439,10 @@ void *recebeTerreo(){
         serialize_vaga_status(&status_resposta, response_json, sizeof(response_json));
         send_json_message(client_sock, response_json);
         
+        // Opcional: exemplo de atualização de algum comando baseado no térreo
         comandos_enviar[0] = dados_terreo[12];
+        // Enviar comandos para o térreo
+        send(client_sock, comandos_enviar, TAMANHO_VETOR_ENVIAR * sizeof(int), 0);
         delay(1000);
     }
     close(client_sock);
