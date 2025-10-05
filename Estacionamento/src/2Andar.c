@@ -15,14 +15,14 @@
 #include "json_utils.h"
 
 
-//ANDAR 2
-#define ENDERECO_01 RPI_GPIO_P1_00                          // PINO 00 - SAÍDA
-#define ENDERECO_02 RPI_GPIO_P1_05                          // PINO 05 - SAÍDA
-#define ENDERECO_03 RPI_GPIO_P1_06                          // PINO 06 - SAÍDA
-#define SENSOR_DE_VAGA RPI_GPIO_P1_13                       // PINO 13 - ENTRADA
-#define SENSOR_DE_PASSAGEM_1 RPI_GPIO_P1_19                 // PINO 19 - ENTRADA
-#define SENSOR_DE_PASSAGEM_2 RPI_GPIO_P1_26                 // PINO 26 - ENTRADA
-#define SINAL_DE_LOTADO_FECHADO2 RPI_GPIO_P1_14             // PINO 14 - SAÍDA
+// ANDAR 2 - usar mapeamento válido RPI_V2_GPIO_P1_XX (pinos físicos)
+#define ENDERECO_01 RPI_V2_GPIO_P1_16                       // PINO físico 16 (GPIO23) - SAÍDA
+#define ENDERECO_02 RPI_V2_GPIO_P1_38                       // PINO físico 38 (GPIO20) - SAÍDA
+#define ENDERECO_03 RPI_V2_GPIO_P1_40                       // PINO físico 40 (GPIO21) - SAÍDA
+#define SENSOR_DE_VAGA RPI_V2_GPIO_P1_13                    // PINO físico 13 (GPIO27) - ENTRADA
+#define SENSOR_DE_PASSAGEM_1 RPI_V2_GPIO_P1_22              // PINO físico 22 (GPIO25) - ENTRADA
+#define SENSOR_DE_PASSAGEM_2 RPI_V2_GPIO_P1_11              // PINO físico 11 (GPIO17) - ENTRADA
+#define SINAL_DE_LOTADO_FECHADO2 RPI_V2_GPIO_P1_08          // PINO físico 8  (GPIO14) - SAÍDA
 
 void configuraPinos2(){
     bcm2835_gpio_fsel(ENDERECO_01, BCM2835_GPIO_FSEL_OUTP);
@@ -84,6 +84,7 @@ int separaIguala2(){
     dados_andar2[12] = comandos_central[0];
     dados_andar2[18] = estatisticas_vagas_andar2.somaVagas;
     andar2_fechado = comandos_central[3];
+    return 0;
 }
 
 void vagasOcupadas2(vaga *v){
@@ -129,6 +130,7 @@ void * vagasDisponiveis2(vaga *p){
             vagas_pcd_disponiveis_andar2=1;
             p[0].ocupada = 0;
         }
+    return NULL;
 }
 
 int mudancaEstadoVaga2( int anteriorSomaValores1){
@@ -158,7 +160,11 @@ void pagamento2(int g, vaga *a){
     evento.confianca_leitura = a[g-1].confianca_leitura;
     
     salvar_evento_arquivo(&evento);
-    log_info("Carro saiu do 2º andar - Vaga: %d, Tempo: %d min, Valor: R$ %.2f", g, a[g-1].tempo_permanencia_minutos, valor_pago);
+    {
+        char log_msg[128];
+        snprintf(log_msg, sizeof(log_msg), "Carro saiu do 2º andar - Vaga: %d, Tempo: %d min, Valor: R$ %.2f", g, a[g-1].tempo_permanencia_minutos, valor_pago);
+        log_info(log_msg);
+    }
     
     dados_andar2[14]=1;
     dados_andar2[15]=a[g-1].numero_carro;
@@ -188,7 +194,11 @@ void buscaCarro2(int f , vaga *a){
     evento.confianca_leitura = a[f-1].confianca_leitura;
     
     salvar_evento_arquivo(&evento);
-    log_info("Carro entrou no 2º andar - Vaga: %d", f);
+    {
+        char log_msg[96];
+        snprintf(log_msg, sizeof(log_msg), "Carro entrou no 2º andar - Vaga: %d", f);
+        log_info(log_msg);
+    }
     
     dados_andar2[11] = 1;
     dados_andar2[13] = f;
@@ -413,6 +423,7 @@ void leituraVagasAndar2(vaga *b){
 
 void *chamaLeitura2(){
     leituraVagasAndar2(vagas_andar2);
+    return NULL;
 }
 
 void *enviaParametros2(){
@@ -421,7 +432,7 @@ void *enviaParametros2(){
     
     int sock;
     struct sockaddr_in addr;
-    socklen_t addr_size;
+    // socklen_t addr_size; // não utilizado
 
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if(sock < 0){
