@@ -16,9 +16,9 @@
 
 //ANDAR 1
 #define ENDERECO_01 RPI_V2_GPIO_P1_16                       // PINO 16 - SAÍDA
-#define ENDERECO_02 RPI_V2_GPIO_P1_20                       // PINO 20 - SAÍDA
+#define ENDERECO_02 RPI_GPIO_P1_20                          // PINO 20 - SAÍDA (compatibilidade bcm2835)
 #define ENDERECO_03 RPI_V2_GPIO_P1_21                       // PINO 21 - SAÍDA
-#define SENSOR_DE_VAGA RPI_V2_GPIO_P1_27                    // PINO 27 - ENTRADA
+#define SENSOR_DE_VAGA RPI_GPIO_P1_27                       // PINO 27 - ENTRADA (compatibilidade bcm2835)
 #define SENSOR_DE_PASSAGEM_1 RPI_V2_GPIO_P1_22              // PINO 22 - ENTRADA
 #define SENSOR_DE_PASSAGEM_2 RPI_V2_GPIO_P1_11              // PINO 11 - ENTRADA
 #define SINAL_DE_LOTADO_FECHADO1 RPI_GPIO_P1_08             // PINO 08 - SAÍDA
@@ -70,6 +70,7 @@ int separaIguala1(){
     dados_andar1[12]= comandos_central[0];
     dados_andar1[18]= estatisticas_vagas_andar1.somaVagas;
     andar1_fechado = comandos_central[2];
+    return 0;
 }
 
 void vagasOcupadas1(vaga *v){
@@ -116,6 +117,7 @@ void * vagasDisponiveis1(vaga *p){
             vagas_pcd_disponiveis_andar1=1;
             p[0].ocupada = 0;
         }
+    return NULL;
 }
 
 int mudancaEstadoVaga1( int anteriorSomaValores1){
@@ -145,7 +147,11 @@ void pagamento1(int g, vaga *a){
     evento.confianca_leitura = a[g-1].confianca_leitura;
     
     salvar_evento_arquivo(&evento);
-    log_info("Carro saiu do 1º andar - Vaga: %d, Tempo: %d min, Valor: R$ %.2f", g, a[g-1].tempo_permanencia_minutos, valor_pago);
+    {
+        char log_msg[128];
+        snprintf(log_msg, sizeof(log_msg), "Carro saiu do 1º andar - Vaga: %d, Tempo: %d min, Valor: R$ %.2f", g, a[g-1].tempo_permanencia_minutos, valor_pago);
+        log_info(log_msg);
+    }
     
     dados_andar1[14]=1;
     dados_andar1[15]=a[g-1].numero_carro;
@@ -175,7 +181,11 @@ void buscaCarro1(int f , vaga *a){
     evento.confianca_leitura = a[f-1].confianca_leitura;
     
     salvar_evento_arquivo(&evento);
-    log_info("Carro entrou no 1º andar - Vaga: %d", f);
+    {
+        char log_msg[96];
+        snprintf(log_msg, sizeof(log_msg), "Carro entrou no 1º andar - Vaga: %d", f);
+        log_info(log_msg);
+    }
     
     dados_andar1[11] = 1;
     dados_andar1[13] = f;
@@ -404,6 +414,7 @@ void leituraVagasAndar1(vaga *b){
 
 void *chamaLeitura1(){
     leituraVagasAndar1(vagas_andar1);
+    return NULL;
 }
 
 void *enviaParametros1(){
@@ -412,7 +423,8 @@ void *enviaParametros1(){
     
     int sock;
     struct sockaddr_in addr;
-    socklen_t addr_size;
+    // Tamanho do endereço não utilizado diretamente
+    // socklen_t addr_size;
 
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if(sock < 0){
