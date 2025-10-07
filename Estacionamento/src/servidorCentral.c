@@ -29,6 +29,8 @@ int manual =  0;
 // Protótipos
 void mostrar_tickets_temporarios();
 void mostrar_alertas_auditoria();
+void calcular_e_processar_cobranca(const char* placa, time_t timestamp_entrada);
+void imprimir_recibo_saida(const char* placa, int tempo_minutos, float valor);
 
 
 /*
@@ -244,9 +246,11 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
                 break;
             case '7':
                 mostrar_tickets_temporarios();
+                needs_clear = true;
                 break;
             case '8':
                 mostrar_alertas_auditoria();
+                needs_clear = true;
                 break;
             case 'q':
                 log_info("Encerrando sistema...");
@@ -576,4 +580,134 @@ int mainC(){
     close_log_system();
     log_info("Servidor central finalizado");
     return 0;
+}
+
+// Implementação das funções de tickets e alertas
+void mostrar_tickets_temporarios() {
+    system("clear");
+    printf("╔══════════════════════════════════════════════════════════════════════════════╗\n");
+    printf("║                            TICKETS TEMPORÁRIOS ATIVOS                        ║\n");
+    printf("╚══════════════════════════════════════════════════════════════════════════════╝\n\n");
+    
+    ticket_temporario_t tickets[50];
+    int num_tickets = listar_tickets_ativos(tickets, 50);
+    
+    if (num_tickets == 0) {
+        printf("  ✅ Nenhum ticket temporário ativo no momento.\n\n");
+    } else {
+        printf("  📋 Total de tickets ativos: %d\n\n", num_tickets);
+        printf("  ┌─────────┬─────────────┬────────────┬─────────────────────┬───────┐\n");
+        printf("  │   ID    │    Placa    │ Confiança  │      Timestamp      │ Andar │\n");
+        printf("  ├─────────┼─────────────┼────────────┼─────────────────────┼───────┤\n");
+        
+        for (int i = 0; i < num_tickets; i++) {
+            char timestamp_str[32];
+            struct tm *tm_info = localtime(&tickets[i].timestamp);
+            strftime(timestamp_str, sizeof(timestamp_str), "%Y-%m-%d %H:%M:%S", tm_info);
+            
+            printf("  │ %7d │ %-11s │    %3d%%    │ %-19s │   %d   │\n",
+                   tickets[i].ticket_id,
+                   tickets[i].placa_temporaria,
+                   tickets[i].confianca,
+                   timestamp_str,
+                   tickets[i].andar);
+        }
+        printf("  └─────────┴─────────────┴────────────┴─────────────────────┴───────┘\n\n");
+    }
+    
+    printf("  Pressione qualquer tecla para voltar ao menu principal...");
+    getchar(); getchar(); // Limpar buffer e aguardar
+}
+
+void mostrar_alertas_auditoria() {
+    system("clear");
+    printf("╔══════════════════════════════════════════════════════════════════════════════╗\n");
+    printf("║                           ALERTAS DE AUDITORIA                               ║\n");
+    printf("╚══════════════════════════════════════════════════════════════════════════════╝\n\n");
+    
+    alerta_auditoria_t alertas[50];
+    listar_alertas_pendentes(alertas, 50);
+    
+    int alertas_pendentes = 0;
+    for (int i = 0; i < 50; i++) {
+        if (alertas[i].timestamp > 0 && !alertas[i].resolvido) {
+            alertas_pendentes++;
+        }
+    }
+    
+    if (alertas_pendentes == 0) {
+        printf("  ✅ Nenhum alerta de auditoria pendente.\n\n");
+    } else {
+        printf("  ⚠️  Total de alertas pendentes: %d\n\n", alertas_pendentes);
+        printf("  ┌─────────────────────┬─────────────┬─────────────────────────────────────────────┐\n");
+        printf("  │      Timestamp      │    Placa    │                   Motivo                    │\n");
+        printf("  ├─────────────────────┼─────────────┼─────────────────────────────────────────────┤\n");
+        
+        for (int i = 0; i < 50; i++) {
+            if (alertas[i].timestamp > 0 && !alertas[i].resolvido) {
+                char timestamp_str[32];
+                struct tm *tm_info = localtime(&alertas[i].timestamp);
+                strftime(timestamp_str, sizeof(timestamp_str), "%Y-%m-%d %H:%M:%S", tm_info);
+                
+                const char* tipo_str = "GENÉRICO";
+                switch(alertas[i].tipo_alerta) {
+                    case 1: tipo_str = "SEM ENTRADA"; break;
+                    case 2: tipo_str = "PLACA INVÁLIDA"; break;
+                    case 3: tipo_str = "ERRO SISTEMA"; break;
+                }
+                
+                printf("  │ %-19s │ %-11s │ [%s] %-33s │\n",
+                       timestamp_str,
+                       alertas[i].placa_veiculo,
+                       tipo_str,
+                       alertas[i].motivo);
+            }
+        }
+        printf("  └─────────────────────┴─────────────┴─────────────────────────────────────────────┘\n\n");
+    }
+    
+    printf("  Pressione qualquer tecla para voltar ao menu principal...");
+    getchar(); getchar(); // Limpar buffer e aguardar
+}
+
+void calcular_e_processar_cobranca(const char* placa, time_t timestamp_entrada) {
+    time_t timestamp_saida = time(NULL);
+    int tempo_minutos = (int)((timestamp_saida - timestamp_entrada) / 60);
+    if ((timestamp_saida - timestamp_entrada) % 60 > 0) {
+        tempo_minutos++; // Arredondar para cima
+    }
+    
+    float valor = calcular_valor_pagamento(tempo_minutos);
+    
+    // Registrar evento de cobrança
+    evento_sistema_t evento;
+    evento.timestamp = timestamp_saida;
+    evento.tipo_evento = 2; // Saída
+    evento.andar_origem = 0; // Central
+    evento.andar_destino = 0;
+    evento.numero_carro = 0;
+    evento.numero_vaga = 0;
+    strncpy(evento.placa_veiculo, placa, sizeof(evento.placa_veiculo) - 1);
+    evento.valor_pago = valor;
+    evento.confianca_leitura = 100;
+    
+    salvar_evento_arquivo(&evento);
+    imprimir_recibo_saida(placa, tempo_minutos, valor);
+}
+
+void imprimir_recibo_saida(const char* placa, int tempo_minutos, float valor) {
+    printf("\n╔══════════════════════════════════════════════════════════════════════════════╗\n");
+    printf("║                               RECIBO DE SAÍDA                                ║\n");
+    printf("╚══════════════════════════════════════════════════════════════════════════════╝\n");
+    printf("  Placa do Veículo: %s\n", placa);
+    printf("  Tempo de Permanência: %d minutos\n", tempo_minutos);
+    printf("  Valor por Minuto: R$ %.2f\n", PRECO_POR_MINUTO);
+    printf("  VALOR TOTAL: R$ %.2f\n", valor);
+    
+    time_t now = time(NULL);
+    char timestamp_str[32];
+    struct tm *tm_info = localtime(&now);
+    strftime(timestamp_str, sizeof(timestamp_str), "%Y-%m-%d %H:%M:%S", tm_info);
+    printf("  Data/Hora da Saída: %s\n", timestamp_str);
+    printf("════════════════════════════════════════════════════════════════════════════════\n\n");
 }

@@ -15,13 +15,13 @@
 #include "json_utils.h"
 
 
-// ANDAR 2 - usar mapeamento válido RPI_V2_GPIO_P1_XX (pinos físicos)
-#define ENDERECO_01 RPI_V2_GPIO_P1_16                       // PINO físico 16 (GPIO23) - SAÍDA
-#define ENDERECO_02 RPI_V2_GPIO_P1_38                       // PINO físico 38 (GPIO20) - SAÍDA
-#define ENDERECO_03 RPI_V2_GPIO_P1_40                       // PINO físico 40 (GPIO21) - SAÍDA
-#define SENSOR_DE_VAGA RPI_V2_GPIO_P1_13                    // PINO físico 13 (GPIO27) - ENTRADA
-#define SENSOR_DE_PASSAGEM_1 RPI_V2_GPIO_P1_22              // PINO físico 22 (GPIO25) - ENTRADA
-#define SENSOR_DE_PASSAGEM_2 RPI_V2_GPIO_P1_11              // PINO físico 11 (GPIO17) - ENTRADA
+// ANDAR 2 - Conforme Tabela 3 do README
+#define ENDERECO_01 RPI_V2_GPIO_P1_27                       // PINO físico 27 (GPIO0)  - SAÍDA
+#define ENDERECO_02 RPI_V2_GPIO_P1_29                       // PINO físico 29 (GPIO5)  - SAÍDA
+#define ENDERECO_03 RPI_V2_GPIO_P1_31                       // PINO físico 31 (GPIO6)  - SAÍDA
+#define SENSOR_DE_VAGA RPI_V2_GPIO_P1_33                    // PINO físico 33 (GPIO13) - ENTRADA
+#define SENSOR_DE_PASSAGEM_1 RPI_V2_GPIO_P1_35              // PINO físico 35 (GPIO19) - ENTRADA
+#define SENSOR_DE_PASSAGEM_2 RPI_V2_GPIO_P1_37              // PINO físico 37 (GPIO26) - ENTRADA
 #define SINAL_DE_LOTADO_FECHADO2 RPI_V2_GPIO_P1_08          // PINO físico 8  (GPIO14) - SAÍDA
 
 void configuraPinos2(){

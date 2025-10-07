@@ -93,4 +93,10 @@ void convert_placa_to_registers(const char* placa, uint16_t* registers);
 int modbus_retry_operation(modbus_t* ctx, int (*operation)(modbus_t*, void*), void* data, int max_retries);
 int send_matricula_modbus(modbus_t* ctx, int slave_addr, const char* matricula);
 
+// Funções de retry com backoff exponencial
+int modbus_read_with_retry(modbus_t* ctx, int addr, int nb, uint16_t* dest, int max_retries);
+int modbus_write_with_retry(modbus_t* ctx, int addr, uint16_t value, int max_retries);
+int modbus_write_registers_with_retry(modbus_t* ctx, int addr, int nb, const uint16_t* src, int max_retries);
+void log_modbus_error(const char* operation, int slave_addr, int error_code);
+
 #endif

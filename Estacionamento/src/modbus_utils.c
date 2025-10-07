@@ -252,6 +252,91 @@ int send_matricula_modbus(modbus_t* ctx, int slave_addr, const char* matricula) 
     printf("Matrícula %s enviada para dispositivo 0x%02X\n", ultimos_4, slave_addr);
     return 0;
 }
+
+// Implementação do retry com backoff exponencial
+int modbus_read_with_retry(modbus_t* ctx, int addr, int nb, uint16_t* dest, int max_retries) {
+    int attempt = 0;
+    int delay_ms = 100; // Delay inicial: 100ms
+    
+    while (attempt < max_retries) {
+        int result = modbus_read_registers(ctx, addr, nb, dest);
+        if (result != -1) {
+            return result; // Sucesso
+        }
+        
+        // Log do erro
+        log_modbus_error("READ", modbus_get_slave(ctx), errno);
+        
+        attempt++;
+        if (attempt < max_retries) {
+            // Backoff exponencial: 100ms, 250ms, 500ms
+            if (attempt == 1) delay_ms = 250;
+            else if (attempt == 2) delay_ms = 500;
+            
+            usleep(delay_ms * 1000); // Converter para microsegundos
+        }
+    }
+    
+    return -1; // Falhou após todas as tentativas
+}
+
+int modbus_write_with_retry(modbus_t* ctx, int addr, uint16_t value, int max_retries) {
+    int attempt = 0;
+    int delay_ms = 100;
+    
+    while (attempt < max_retries) {
+        int result = modbus_write_register(ctx, addr, value);
+        if (result != -1) {
+            return result;
+        }
+        
+        log_modbus_error("WRITE", modbus_get_slave(ctx), errno);
+        
+        attempt++;
+        if (attempt < max_retries) {
+            if (attempt == 1) delay_ms = 250;
+            else if (attempt == 2) delay_ms = 500;
+            
+            usleep(delay_ms * 1000);
+        }
+    }
+    
+    return -1;
+}
+
+int modbus_write_registers_with_retry(modbus_t* ctx, int addr, int nb, const uint16_t* src, int max_retries) {
+    int attempt = 0;
+    int delay_ms = 100;
+    
+    while (attempt < max_retries) {
+        int result = modbus_write_registers(ctx, addr, nb, src);
+        if (result != -1) {
+            return result;
+        }
+        
+        log_modbus_error("WRITE_MULTIPLE", modbus_get_slave(ctx), errno);
+        
+        attempt++;
+        if (attempt < max_retries) {
+            if (attempt == 1) delay_ms = 250;
+            else if (attempt == 2) delay_ms = 500;
+            
+            usleep(delay_ms * 1000);
+        }
+    }
+    
+    return -1;
+}
+
+void log_modbus_error(const char* operation, int slave_addr, int error_code) {
+    char error_msg[256];
+    const char* error_str = strerror(error_code);
+    snprintf(error_msg, sizeof(error_msg), 
+             "MODBUS %s falhou - Escravo: 0x%02X, Erro: %s", 
+             operation, slave_addr, error_str);
+    log_erro(error_msg);
+}
+
 #else
 // Implementações stub quando NO_MODBUS está definido
 modbus_t* init_modbus_connection(const char* device, int baudrate) {
@@ -266,4 +351,8 @@ int update_placar_data(modbus_t* ctx, const placar_data_t* data) { (void)ctx; (v
 int read_placar_data(modbus_t* ctx, placar_data_t* data) { (void)ctx; if(data){ memset(data,0,sizeof(*data)); } return 0; }
 int modbus_retry_operation(modbus_t* ctx, int (*operation)(modbus_t*, void*), void* data, int max_retries) { (void)ctx; (void)operation; (void)data; (void)max_retries; return 0; }
 int send_matricula_modbus(modbus_t* ctx, int slave_addr, const char* matricula) { (void)ctx; (void)slave_addr; (void)matricula; return 0; }
+int modbus_read_with_retry(modbus_t* ctx, int addr, int nb, uint16_t* dest, int max_retries) { (void)ctx; (void)addr; (void)nb; (void)dest; (void)max_retries; return 0; }
+int modbus_write_with_retry(modbus_t* ctx, int addr, uint16_t value, int max_retries) { (void)ctx; (void)addr; (void)value; (void)max_retries; return 0; }
+int modbus_write_registers_with_retry(modbus_t* ctx, int addr, int nb, const uint16_t* src, int max_retries) { (void)ctx; (void)addr; (void)nb; (void)src; (void)max_retries; return 0; }
+void log_modbus_error(const char* operation, int slave_addr, int error_code) { (void)operation; (void)slave_addr; (void)error_code; }
 #endif

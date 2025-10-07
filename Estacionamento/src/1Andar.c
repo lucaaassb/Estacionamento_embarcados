@@ -14,13 +14,13 @@
 #include "common_utils.h"
 #include "json_utils.h"
 
-//ANDAR 1
-#define ENDERECO_01 RPI_V2_GPIO_P1_16                       // PINO físico 16 (GPIO23) - SAÍDA
+//ANDAR 1 - Conforme Tabela 2 do README
+#define ENDERECO_01 RPI_V2_GPIO_P1_36                       // PINO físico 36 (GPIO16) - SAÍDA
 #define ENDERECO_02 RPI_V2_GPIO_P1_38                       // PINO físico 38 (GPIO20) - SAÍDA
 #define ENDERECO_03 RPI_V2_GPIO_P1_40                       // PINO físico 40 (GPIO21) - SAÍDA
 #define SENSOR_DE_VAGA RPI_V2_GPIO_P1_13                    // PINO físico 13 (GPIO27) - ENTRADA
-#define SENSOR_DE_PASSAGEM_1 RPI_V2_GPIO_P1_22              // PINO físico 22 (GPIO25) - ENTRADA
-#define SENSOR_DE_PASSAGEM_2 RPI_V2_GPIO_P1_11              // PINO físico 11 (GPIO17) - ENTRADA
+#define SENSOR_DE_PASSAGEM_1 RPI_V2_GPIO_P1_15              // PINO físico 15 (GPIO22) - ENTRADA
+#define SENSOR_DE_PASSAGEM_2 RPI_V2_GPIO_P1_23              // PINO físico 23 (GPIO11) - ENTRADA
 #define SINAL_DE_LOTADO_FECHADO1 RPI_V2_GPIO_P1_08          // PINO físico 8  (GPIO14) - SAÍDA
 
 void configuraPinos1(){

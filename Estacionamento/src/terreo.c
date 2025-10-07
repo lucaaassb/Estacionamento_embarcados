@@ -14,19 +14,20 @@
 #include "modbus_utils.h"
 #include "common_utils.h"
 #include "json_utils.h"
+#include "thingsboard.h"
 
 
-// ANDAR TÉRREO - usar identificadores válidos RPI_V2_GPIO_P1_XX
+// ANDAR TÉRREO - Conforme Tabela 1 do README
 #define ENDERECO_01 RPI_V2_GPIO_P1_11                       // PINO físico 11 (GPIO17) - SAÍDA
 #define ENDERECO_02 RPI_V2_GPIO_P1_12                       // PINO físico 12 (GPIO18) - SAÍDA
-#define SENSOR_DE_VAGA RPI_V2_GPIO_P1_03                    // PINO físico 3  (GPIO2)  - ENTRADA
-#define SENSOR_ABERTURA_CANCELA_ENTRADA RPI_V2_GPIO_P1_07   // PINO físico 7  (GPIO4)  - ENTRADA
-#define SENSOR_FECHAMENTO_CANCELA_ENTRADA RPI_V2_GPIO_P1_13 // PINO físico 13 (GPIO27) - ENTRADA
+#define SENSOR_DE_VAGA RPI_V2_GPIO_P1_24                    // PINO físico 24 (GPIO8)  - ENTRADA
+#define SENSOR_ABERTURA_CANCELA_ENTRADA RPI_V2_GPIO_P1_07   // PINO físico 7  (GPIO4)  - ENTRADA - README: GPIO7
+#define SENSOR_FECHAMENTO_CANCELA_ENTRADA RPI_V2_GPIO_P1_28 // PINO físico 28 (GPIO1)  - ENTRADA
 #define MOTOR_CANCELA_ENTRADA RPI_V2_GPIO_P1_16             // PINO físico 16 (GPIO23) - SAÍDA
-#define SENSOR_ABERTURA_CANCELA_SAIDA RPI_V2_GPIO_P1_19     // PINO físico 19 (GPIO10) - ENTRADA
-#define SENSOR_FECHAMENTO_CANCELA_SAIDA RPI_V2_GPIO_P1_26   // PINO físico 26 (GPIO7)  - ENTRADA
-#define MOTOR_CANCELA_SAIDA RPI_V2_GPIO_P1_24               // PINO físico 24 (GPIO8)  - SAÍDA
-#define SINAL_DE_LOTADO_FECHADO RPI_V2_GPIO_P1_22           // PINO físico 22 (GPIO25) - SAÍDA
+#define SENSOR_ABERTURA_CANCELA_SAIDA RPI_V2_GPIO_P1_32     // PINO físico 32 (GPIO12) - ENTRADA
+#define SENSOR_FECHAMENTO_CANCELA_SAIDA RPI_V2_GPIO_P1_22   // PINO físico 22 (GPIO25) - ENTRADA
+#define MOTOR_CANCELA_SAIDA RPI_V2_GPIO_P1_18               // PINO físico 18 (GPIO24) - SAÍDA
+#define SINAL_DE_LOTADO_FECHADO RPI_V2_GPIO_P1_26           // PINO físico 26 (GPIO7)  - SAÍDA
 
 void configuraPinos(){
     bcm2835_gpio_fsel(ENDERECO_01, BCM2835_GPIO_FSEL_OUTP);
@@ -56,6 +57,10 @@ vsoma estatisticas_vagas;
 int mudanca_vaga = 0, flag_entrada = 0, total_carros_terreo = 0;
 int vagas_idoso_disponiveis = 2, vagas_pcd_disponiveis = 1, vagas_comum_disponiveis = 5;
 int soma_valores_anterior = 0;
+
+// Variáveis para ThingsBoard
+static int carros_entrada_total = 0, carros_saida_total = 0;
+static float valor_arrecadado_total = 0.0;
 
 // Variáveis MODBUS
 modbus_t* ctx_modbus = NULL;
@@ -119,13 +124,35 @@ void atualizar_placar_modbus() {
     if (comandos_central[2]) dados_placar.flags |= 0x02; // bit1 = lotado 1º andar
     if (comandos_central[3]) dados_placar.flags |= 0x04; // bit2 = lotado 2º andar
     
-    // Atualizar placar via MODBUS
-    if (update_placar_data(ctx_modbus, &dados_placar) == 0) {
-        // Enviar matrícula após atualização
-        send_matricula_modbus(ctx_modbus, PLACAR_ADDR, matricula_usuario);
-        log_info("Placar MODBUS atualizado");
+    // Atualizar placar via MODBUS com retry
+    uint16_t registers[13];
+    registers[0] = dados_placar.vagas_terreo_pcd;
+    registers[1] = dados_placar.vagas_terreo_idoso;
+    registers[2] = dados_placar.vagas_terreo_comum;
+    registers[3] = dados_placar.vagas_andar1_pcd;
+    registers[4] = dados_placar.vagas_andar1_idoso;
+    registers[5] = dados_placar.vagas_andar1_comum;
+    registers[6] = dados_placar.vagas_andar2_pcd;
+    registers[7] = dados_placar.vagas_andar2_idoso;
+    registers[8] = dados_placar.vagas_andar2_comum;
+    registers[9] = dados_placar.vagas_total_pcd;
+    registers[10] = dados_placar.vagas_total_idoso;
+    registers[11] = dados_placar.vagas_total_comum;
+    registers[12] = dados_placar.flags;
+    
+    if (modbus_set_slave(ctx_modbus, PLACAR_ADDR) == 0) {
+        if (modbus_write_registers_with_retry(ctx_modbus, 0, 13, registers, 3) != -1) {
+            // Enviar matrícula após atualização com retry
+            if (send_matricula_modbus(ctx_modbus, PLACAR_ADDR, matricula_usuario) == 0) {
+                log_info("Placar MODBUS atualizado com sucesso");
+            } else {
+                log_erro("Falha ao enviar matrícula para placar");
+            }
+        } else {
+            log_erro("Falha ao atualizar placar MODBUS após tentativas");
+        }
     } else {
-        log_erro("Falha ao atualizar placar MODBUS");
+        log_erro("Falha ao definir endereço do placar MODBUS");
     }
 }
 
@@ -140,32 +167,61 @@ void * sensorEntrada(){
             bcm2835_gpio_write(MOTOR_CANCELA_ENTRADA, HIGH);
             dados_terreo[19]=1;
             
-            // Disparar captura da câmera de entrada
+            // Disparar captura da câmera de entrada com retry
             if (ctx_modbus) {
                 if (capture_license_plate(ctx_modbus, CAMERA_ENTRADA_ADDR, &dados_camera_entrada, 2000) == 0) {
                     log_info("Placa capturada na entrada");
-                    // Validar placa
-                    if (validar_placa(dados_camera_entrada.placa) && dados_camera_entrada.confianca >= 70) {
-                        log_info("Placa válida capturada na entrada");
+                    
+                    // Implementar política de tratamento de confiança conforme README
+                    if (validar_placa(dados_camera_entrada.placa) && dados_camera_entrada.confianca >= 60) {
+                        if (dados_camera_entrada.confianca >= 70) {
+                            log_info("Placa válida capturada na entrada com alta confiança");
+                        } else {
+                            // Confiança entre 60-69%: permitir entrada com ticket temporário
+                            char log_msg[128];
+                            snprintf(log_msg, sizeof(log_msg), 
+                                    "Placa com confiança média (%d%%) - gerando ticket temporário", 
+                                    dados_camera_entrada.confianca);
+                            log_info(log_msg);
+                            
+                            int ticket_id = gerar_ticket_temporario(dados_camera_entrada.placa, 
+                                                                  dados_camera_entrada.confianca, 
+                                                                  0, 0); // Vaga será definida quando estacionar
+                            if (ticket_id > 0) {
+                                snprintf(log_msg, sizeof(log_msg), 
+                                        "Ticket temporário gerado para entrada: %d", ticket_id);
+                                log_info(log_msg);
+                            }
+                        }
                     } else {
-                        log_erro("Placa inválida ou baixa confiança na entrada");
-                        // Gerar ticket temporário para placa não lida/baixa confiança
-                        int ticket_id = gerar_ticket_temporario(dados_camera_entrada.placa, 
+                        // Confiança < 60%: gerar ticket com ID anônimo
+                        log_erro("Placa inválida ou confiança muito baixa (<60%) na entrada");
+                        char placa_anonima[16];
+                        snprintf(placa_anonima, sizeof(placa_anonima), "ANOM%04d", rand() % 10000);
+                        
+                        int ticket_id = gerar_ticket_temporario(placa_anonima, 
                                                               dados_camera_entrada.confianca, 
-                                                              0, 0); // Vaga será definida quando estacionar
+                                                              0, 0);
                         if (ticket_id > 0) {
-                            char log_msg[80];
-                            snprintf(log_msg, sizeof(log_msg), "Ticket temporário gerado para entrada: %d", ticket_id);
+                            char log_msg[128];
+                            snprintf(log_msg, sizeof(log_msg), 
+                                    "Ticket anônimo gerado para entrada: %d (%s)", 
+                                    ticket_id, placa_anonima);
                             log_info(log_msg);
                         }
                     }
                 } else {
                     log_erro("Falha na captura da placa na entrada");
                     // Gerar ticket temporário para falha de captura
-                    int ticket_id = gerar_ticket_temporario("FALHA", 0, 0, 0);
+                    char placa_falha[16];
+                    snprintf(placa_falha, sizeof(placa_falha), "FALHA%04d", rand() % 10000);
+                    
+                    int ticket_id = gerar_ticket_temporario(placa_falha, 0, 0, 0);
                     if (ticket_id > 0) {
-                        char log_msg[96];
-                        snprintf(log_msg, sizeof(log_msg), "Ticket temporário gerado para falha de captura: %d", ticket_id);
+                        char log_msg[128];
+                        snprintf(log_msg, sizeof(log_msg), 
+                                "Ticket de falha gerado para entrada: %d (%s)", 
+                                ticket_id, placa_falha);
                         log_info(log_msg);
                     }
                 }
@@ -176,8 +232,14 @@ void * sensorEntrada(){
             bcm2835_gpio_write(MOTOR_CANCELA_ENTRADA, LOW);
             if(flag_entrada==0){
                 ++total_carros_terreo;
+                ++carros_entrada_total;
                 flag_entrada=1;
                 dados_terreo[19]=1;
+                
+                // Enviar evento de entrada para ThingsBoard
+                send_vehicle_event(TB_ACCESS_TOKEN_TERREO, "entrada", 
+                                 dados_camera_entrada.placa, 0, 0.0);
+                log_info("Evento de entrada enviado para dashboard");
             }
         }else flag_entrada=0;
         
@@ -194,22 +256,51 @@ void * sensorSaida(){
         if(HIGH == bcm2835_gpio_lev(SENSOR_ABERTURA_CANCELA_SAIDA)){
             bcm2835_gpio_write(MOTOR_CANCELA_SAIDA, HIGH);
             
-            // Disparar captura da câmera de saída
+            // Disparar captura da câmera de saída com retry
             if (ctx_modbus) {
                 if (capture_license_plate(ctx_modbus, CAMERA_SAIDA_ADDR, &dados_camera_saida, 2000) == 0) {
                     log_info("Placa capturada na saída");
-                    // Validar placa
-                    if (validar_placa(dados_camera_saida.placa) && dados_camera_saida.confianca >= 70) {
-                        log_info("Placa válida capturada na saída");
-                        // Verificar correspondência com entrada
+                    
+                    // Aplicar mesma política de confiança da entrada
+                    if (validar_placa(dados_camera_saida.placa) && dados_camera_saida.confianca >= 60) {
+                        if (dados_camera_saida.confianca >= 70) {
+                            log_info("Placa válida capturada na saída com alta confiança");
+                        } else {
+                            char log_msg[128];
+                            snprintf(log_msg, sizeof(log_msg), 
+                                    "Placa na saída com confiança média (%d%%)", 
+                                    dados_camera_saida.confianca);
+                            log_info(log_msg);
+                        }
+                        
+                        // Verificar correspondência com entrada (incluir tickets temporários)
                         if (!buscar_correspondencia_entrada(dados_camera_saida.placa)) {
-                            sinalizar_alerta_auditoria(dados_camera_saida.placa, 
-                                                    "Carro sem correspondência de entrada", 1);
+                            // Verificar se existe ticket temporário correspondente
+                            ticket_temporario_t* ticket = buscar_ticket_por_placa(dados_camera_saida.placa);
+                            if (!ticket) {
+                                sinalizar_alerta_auditoria(dados_camera_saida.placa, 
+                                                        "Carro sem correspondência de entrada ou ticket", 1);
+                            } else {
+                                char log_msg[128];
+                                snprintf(log_msg, sizeof(log_msg), 
+                                        "Saída associada ao ticket temporário: %d", ticket->ticket_id);
+                                log_info(log_msg);
+                                desativar_ticket(ticket->ticket_id);
+                            }
                         }
                     } else {
-                        log_erro("Placa inválida ou baixa confiança na saída");
-                        sinalizar_alerta_auditoria(dados_camera_saida.placa, 
-                                                "Placa inválida na saída", 2);
+                        // Confiança < 60%: tentar buscar por tickets
+                        log_erro("Placa inválida ou confiança muito baixa (<60%) na saída");
+                        
+                        // Buscar tickets ativos para reconciliação manual
+                        ticket_temporario_t tickets[10];
+                        int num_tickets = listar_tickets_ativos(tickets, 10);
+                        if (num_tickets > 0) {
+                            log_info("Tickets ativos encontrados para possível reconciliação");
+                        } else {
+                            sinalizar_alerta_auditoria(dados_camera_saida.placa, 
+                                                    "Placa inválida na saída sem tickets ativos", 2);
+                        }
                     }
                 } else {
                     log_erro("Falha na captura da placa na saída");
@@ -222,6 +313,12 @@ void * sensorSaida(){
         if(HIGH == bcm2835_gpio_lev(SENSOR_FECHAMENTO_CANCELA_SAIDA)){
             bcm2835_gpio_write(MOTOR_CANCELA_SAIDA, LOW);
             dados_terreo[19]=0;
+            ++carros_saida_total;
+            
+            // Enviar evento de saída para ThingsBoard
+            send_vehicle_event(TB_ACCESS_TOKEN_TERREO, "saida", 
+                             dados_camera_saida.placa, 0, 0.0);
+            log_info("Evento de saída enviado para dashboard");
         }
     }
     return NULL;
@@ -308,6 +405,10 @@ void pagamento(int g, vaga *v){
         snprintf(log_msg, sizeof(log_msg), "Carro saiu - Vaga: %d, Tempo: %d min, Valor: R$ %.2f", g, v[g-1].tempo_permanencia_minutos, valor_pago);
         log_info(log_msg);
     }
+    
+    // Acumular valor arrecadado e enviar para ThingsBoard
+    valor_arrecadado_total += valor_pago;
+    send_vehicle_event(TB_ACCESS_TOKEN_TERREO, "cobranca", v[g-1].placa_veiculo, g, valor_pago);
     
     dados_terreo[14]=1;
     dados_terreo[15]=v[g-1].numero_carro;
@@ -432,10 +533,15 @@ void leituraVagasTerreo(vaga *v){
             bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO, LOW);
         }
         
-        // Atualizar placar MODBUS periodicamente
+        // Atualizar placar MODBUS e ThingsBoard periodicamente
         static int contador_placar = 0;
         if (++contador_placar >= 10) { // A cada 10 ciclos (500ms)
             atualizar_placar_modbus();
+            
+            // Enviar dados para ThingsBoard
+            int vagas_array[4] = {v[0].ocupada, v[1].ocupada, v[2].ocupada, v[3].ocupada};
+            send_terreo_data(vagas_array, carros_entrada_total, carros_saida_total, valor_arrecadado_total);
+            
             contador_placar = 0;
         }
     }
@@ -446,32 +552,81 @@ void *chamaLeitura(){
     return NULL;
 }
 
+// Função auxiliar para reconexão TCP/IP
+bool tentar_reconexao_tcp(int *sock, struct sockaddr_in *addr, int *tentativas) {
+    if (*sock != -1) {
+        close(*sock);
+        *sock = -1;
+    }
+    
+    *sock = socket(AF_INET, SOCK_STREAM, 0);
+    if(*sock < 0){
+        log_erro("Erro ao criar socket");
+        return false;
+    }
+    
+    // Configurar timeout do socket
+    struct timeval timeout;
+    timeout.tv_sec = 5;  // 5 segundos
+    timeout.tv_usec = 0;
+    setsockopt(*sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
+    setsockopt(*sock, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout));
+    
+    if(connect(*sock, (struct sockaddr*)addr, sizeof(*addr)) == 0){
+        log_info("Reconectado ao servidor central");
+        *tentativas = 0;
+        return true;
+    } else {
+        char erro_msg[128];
+        snprintf(erro_msg, sizeof(erro_msg), "Falha na reconexão (tentativa %d)", (*tentativas)++);
+        log_erro(erro_msg);
+        close(*sock);
+        *sock = -1;
+        return false;
+    }
+}
+
 void *enviaParametros(){
     char *ip ="164.41.98.2";  // IP do servidor central
     int port = 10683;
     
-    int sock;
+    int sock = -1;
     struct sockaddr_in addr;
-    // socklen_t addr_size; // não utilizado
-
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if(sock < 0){
-        perror("[-]Socket error");
-        exit(1);
-    }
-    printf("[+]Server socket created\n");
-
+    bool conectado = false;
+    int tentativas_reconexao = 0;
+    const int max_tentativas = 5;
+    
     memset(&addr, '\0', sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = inet_addr(ip);
-    connect(sock, (struct sockaddr*)&addr, sizeof(addr));
-    printf("Connected to Server\n");
+    
+    // Tentar conexão inicial
+    conectado = tentar_reconexao_tcp(&sock, &addr, &tentativas_reconexao);
     
     char json_buffer[1024];
     vaga_status_t status_recebido;
     
     while(1){
+        // Verificar se precisa reconectar
+        if (!conectado || sock == -1) {
+            if (tentativas_reconexao < max_tentativas) {
+                log_info("Tentando reconectar ao servidor central...");
+                conectado = tentar_reconexao_tcp(&sock, &addr, &tentativas_reconexao);
+                if (!conectado) {
+                    // Backoff exponencial para reconexão
+                    int delay_reconexao = 1000 * (1 << tentativas_reconexao); // 1s, 2s, 4s, 8s, 16s
+                    if (delay_reconexao > 30000) delay_reconexao = 30000; // Máximo 30s
+                    usleep(delay_reconexao * 1000);
+                    continue;
+                }
+            } else {
+                log_erro("Máximo de tentativas de reconexão excedido - modo degradado");
+                sleep(60); // Aguardar 1 minuto antes de tentar novamente
+                tentativas_reconexao = 0;
+                continue;
+            }
+        }
         // Enviar dados via JSON (entrada, saída, passagem, etc.)
         if (dados_terreo[11] == 1) { // Carro entrando
             entrada_ok_t entrada;
@@ -499,8 +654,12 @@ void *enviaParametros(){
             send_json_message(sock, saida_json);
         }
         
-        // Manter compatibilidade com arrays antigos
-        send (sock, dados_terreo, TAMANHO_VETOR_ENVIAR *sizeof(int) , 0);
+        // Tentar enviar dados com tratamento de erro
+        if (send(sock, dados_terreo, TAMANHO_VETOR_ENVIAR * sizeof(int), 0) == -1) {
+            log_erro("Erro ao enviar dados para servidor central");
+            conectado = false;
+            continue;
+        }
         
         // Receber resposta JSON do servidor central
         if (receive_json_message(sock, json_buffer, sizeof(json_buffer)) == 0) {
@@ -511,7 +670,13 @@ void *enviaParametros(){
             }
         }
         
-        recv(sock, comandos_central, TAMANHO_VETOR_RECEBER * sizeof(int), 0);
+        // Receber comandos com tratamento de erro
+        if (recv(sock, comandos_central, TAMANHO_VETOR_RECEBER * sizeof(int), 0) == -1) {
+            log_erro("Erro ao receber comandos do servidor central");
+            conectado = false;
+            continue;
+        }
+        
         delay(1000);
     }
     close(sock);
@@ -540,6 +705,13 @@ int mainT(){
         log_erro("Falha ao inicializar MODBUS - continuando sem câmeras");
     } else {
         log_info("MODBUS inicializado com sucesso");
+    }
+    
+    // Inicializar ThingsBoard
+    if (init_thingsboard_client() == 0) {
+        log_info("Cliente ThingsBoard inicializado com sucesso");
+    } else {
+        log_erro("Falha ao inicializar cliente ThingsBoard - dashboard não funcionará");
     }
 
     // Inicializar variáveis
@@ -572,6 +744,7 @@ int mainT(){
     if (ctx_modbus) {
         close_modbus_connection(ctx_modbus);
     }
+    cleanup_thingsboard_client();
     free(vagas_terreo);
     close_log_system();
     bcm2835_close();

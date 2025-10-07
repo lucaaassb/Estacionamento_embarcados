@@ -60,6 +60,19 @@ typedef struct {
     char mensagem[128]; // Para alertas e comandos
 } evento_sistema_t;
 
+// Níveis de log
+#define LOG_ERRO 1
+#define LOG_INFO 2
+#define LOG_DEBUG 3
+
+// Estrutura para sistema de logs
+typedef struct {
+    FILE* arquivo_log;
+    pthread_mutex_t mutex_log;
+    int nivel_log;
+    char nome_arquivo[256];
+} sistema_log_t;
+
 // Funções de log
 void init_log_system();
 void log_evento(const char* mensagem, int nivel);
@@ -67,6 +80,7 @@ void log_erro(const char* mensagem);
 void log_info(const char* mensagem);
 void log_debug(const char* mensagem);
 void close_log_system();
+void rotacionar_log_se_necessario();
 
 // Funções de tempo
 int calcular_tempo_permanencia(struct timeval entrada, struct timeval saida);

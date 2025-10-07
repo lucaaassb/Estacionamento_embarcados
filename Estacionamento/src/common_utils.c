@@ -18,51 +18,107 @@ static alerta_auditoria_t alertas_auditoria[100];
 static int ticket_count = 0;
 static int alerta_count = 0;
 
+// Sistema de logs robusto
+static sistema_log_t sistema_log = {0};
+
 // Inicializar sistema de logs
 void init_log_system() {
-    log_file = fopen("sistema_estacionamento.log", "a");
-    if (!log_file) {
+    pthread_mutex_init(&sistema_log.mutex_log, NULL);
+    
+    time_t now = time(NULL);
+    struct tm *tm_info = localtime(&now);
+    snprintf(sistema_log.nome_arquivo, sizeof(sistema_log.nome_arquivo),
+             "logs/estacionamento_%04d%02d%02d.log", 
+             tm_info->tm_year + 1900, tm_info->tm_mon + 1, tm_info->tm_mday);
+    
+    // Criar diretório de logs se não existir
+    system("mkdir -p logs");
+    
+    sistema_log.arquivo_log = fopen(sistema_log.nome_arquivo, "a");
+    if (!sistema_log.arquivo_log) {
         perror("Erro ao abrir arquivo de log");
+    } else {
+        sistema_log.nivel_log = LOG_DEBUG; // Log completo
+        log_info("Sistema de logs inicializado");
+    }
+}
+
+void rotacionar_log_se_necessario() {
+    if (!sistema_log.arquivo_log) return;
+    
+    // Verificar tamanho do arquivo (rotacionar se > 10MB)
+    fseek(sistema_log.arquivo_log, 0L, SEEK_END);
+    long tamanho = ftell(sistema_log.arquivo_log);
+    
+    if (tamanho > 10 * 1024 * 1024) { // 10MB
+        fclose(sistema_log.arquivo_log);
+        
+        char arquivo_backup[300];
+        time_t now = time(NULL);
+        snprintf(arquivo_backup, sizeof(arquivo_backup), "%s.%ld", 
+                sistema_log.nome_arquivo, now);
+        
+        rename(sistema_log.nome_arquivo, arquivo_backup);
+        
+        sistema_log.arquivo_log = fopen(sistema_log.nome_arquivo, "a");
+        if (sistema_log.arquivo_log) {
+            log_info("Log rotacionado para arquivo de backup");
+        }
     }
 }
 
 // Funções de log
 void log_evento(const char* mensagem, int nivel) {
-    pthread_mutex_lock(&log_mutex);
+    if (nivel > sistema_log.nivel_log) return;
+    
+    pthread_mutex_lock(&sistema_log.mutex_log);
     
     time_t now = time(NULL);
-    char* timestamp = ctime(&now);
-    timestamp[strlen(timestamp)-1] = '\0'; // Remove \n
+    char timestamp[64];
+    struct tm *tm_info = localtime(&now);
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", tm_info);
     
     const char* nivel_str[] = {"DEBUG", "INFO", "ERRO"};
-    if (nivel >= 0 && nivel <= 2) {
-        printf("[%s] %s: %s\n", timestamp, nivel_str[nivel], mensagem);
-        if (log_file) {
-            fprintf(log_file, "[%s] %s: %s\n", timestamp, nivel_str[nivel], mensagem);
-            fflush(log_file);
-        }
+    const char* nivel_atual = (nivel >= 1 && nivel <= 3) ? nivel_str[nivel-1] : "UNKNOWN";
+    
+    // Saída para console
+    printf("[%s] %s: %s\n", timestamp, nivel_atual, mensagem);
+    
+    // Saída para arquivo
+    if (sistema_log.arquivo_log) {
+        fprintf(sistema_log.arquivo_log, "[%s] %s: %s\n", timestamp, nivel_atual, mensagem);
+        fflush(sistema_log.arquivo_log);
+        
+        // Verificar rotação
+        rotacionar_log_se_necessario();
     }
     
-    pthread_mutex_unlock(&log_mutex);
+    pthread_mutex_unlock(&sistema_log.mutex_log);
 }
 
 void log_erro(const char* mensagem) {
-    log_evento(mensagem, 2);
+    log_evento(mensagem, LOG_ERRO);
 }
 
 void log_info(const char* mensagem) {
-    log_evento(mensagem, 1);
+    log_evento(mensagem, LOG_INFO);
 }
 
 void log_debug(const char* mensagem) {
-    log_evento(mensagem, 0);
+    log_evento(mensagem, LOG_DEBUG);
 }
 
 void close_log_system() {
-    if (log_file) {
-        fclose(log_file);
-        log_file = NULL;
+    pthread_mutex_lock(&sistema_log.mutex_log);
+    
+    if (sistema_log.arquivo_log) {
+        log_info("Sistema de logs finalizando");
+        fclose(sistema_log.arquivo_log);
+        sistema_log.arquivo_log = NULL;
     }
+    
+    pthread_mutex_unlock(&sistema_log.mutex_log);
+    pthread_mutex_destroy(&sistema_log.mutex_log);
 }
 
 // Funções de tempo
