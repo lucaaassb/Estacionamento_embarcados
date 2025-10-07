@@ -15,6 +15,7 @@
 #include "modbus_utils.h"
 #include "common_utils.h"
 #include "json_utils.h"
+#include "http_server.h"
 
 #define TAMANHO_VETOR_RECEBER 23
 #define TAMANHO_VETOR_ENVIAR 5
@@ -534,10 +535,23 @@ void mostrar_alertas_auditoria() {
     getchar();
 }
 
+// Função para atualizar dados do servidor HTTP
+void update_http_data() {
+    extern estacionamento_data_t estacionamento_data;
+    update_estacionamento_data(&estacionamento_data, dados_terreo, dados_andar1, dados_andar2, comandos_enviar);
+}
+
 int mainC(){
     // Inicializar sistema de logs
     init_log_system();
     log_info("Iniciando servidor central");
+    
+    // Inicializar servidor HTTP
+    if(init_http_server(8080) != 0) {
+        log_erro("Falha ao inicializar servidor HTTP");
+        return 1;
+    }
+    log_info("Servidor HTTP inicializado na porta 8080");
     
     pthread_t fRecebePrimeiroAndar, fRecebeSegundoAndar, fRecebeTerreo;
     
@@ -547,12 +561,18 @@ int mainC(){
     pthread_create(&fRecebeTerreo, NULL, recebeTerreo, NULL);
     
     log_info("Servidor central em execução");
-    menu(fRecebeTerreo, fRecebePrimeiroAndar, fRecebeSegundoAndar);
+    
+    // Loop principal para atualizar dados HTTP
+    while(1) {
+        update_http_data();
+        usleep(100000); // 100ms
+    }
     
     pthread_join(fRecebePrimeiroAndar, NULL);
     pthread_join(fRecebeSegundoAndar, NULL);
     pthread_join(fRecebeTerreo, NULL);
     
+    stop_http_server();
     close_log_system();
     log_info("Servidor central finalizado");
     return 0;
