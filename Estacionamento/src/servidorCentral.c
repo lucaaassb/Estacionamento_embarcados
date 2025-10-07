@@ -10,6 +10,7 @@
 #include <termios.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <time.h>
 #include "modbus_utils.h"
 #include "common_utils.h"
 #include "json_utils.h"
@@ -74,9 +75,20 @@ int kbhit(void)
 
 
 void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRecebeSegundoAndar){
-
+    // Variáveis para controle de timing
+    static time_t last_update = 0;
+    static bool needs_clear = true;
+    
     while(1){
-        system("clear");
+        time_t current_time = time(NULL);
+        
+        // Só limpa a tela se necessário e com intervalo mínimo
+        if (needs_clear && (current_time - last_update >= 1)) {
+            system("clear");
+            needs_clear = false;
+            last_update = current_time;
+        }
+        
         printf("╔══════════════════════════════════════════════════════════════════════════════╗\n");
         printf("║                        SISTEMA DE CONTROLE DE ESTACIONAMENTO                 ║\n");
         printf("╚══════════════════════════════════════════════════════════════════════════════╝\n\n");
@@ -130,36 +142,48 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
             printf("  🚫 2º ANDAR FECHADO\n");
         }
         
-        // Eventos recentes
+        // Eventos recentes (sem delay para evitar travamento)
         if(dados_andar1[14]==1){
             float valor = (dados_andar1[16]) * 0.15f;
             printf("  💰 Carro %d saiu da vaga A%d - Pagou R$ %.2f\n", 
                    dados_andar1[15], dados_andar1[17], valor);
-            delay(1500);
+            // Reset flag após exibir
+            dados_andar1[14] = 0;
+            needs_clear = true;
         }
         if(dados_andar2[14]==1){
             float valor = (dados_andar2[16]) * 0.15f;
             printf("  💰 Carro %d saiu da vaga B%d - Pagou R$ %.2f\n", 
                    dados_andar2[15], dados_andar2[17], valor);
-            delay(1500);
+            // Reset flag após exibir
+            dados_andar2[14] = 0;
+            needs_clear = true;
         }   
         if(dados_terreo[14]==1){
             float valor = (dados_terreo[16]) * 0.15f;
             printf("  💰 Carro %d saiu da vaga T%d - Pagou R$ %.2f\n", 
                    dados_terreo[15], dados_terreo[17], valor);
-            delay(1500);
+            // Reset flag após exibir
+            dados_terreo[14] = 0;
+            needs_clear = true;
         }
         if(dados_andar1[11]==1){
             printf("  🚗 Carro %d entrou na vaga A%d\n", dados_andar1[12], dados_andar1[13]);
-            delay(1500);
+            // Reset flag após exibir
+            dados_andar1[11] = 0;
+            needs_clear = true;
         }
         if(dados_andar2[11]==1){
             printf("  🚗 Carro %d entrou na vaga B%d\n", dados_andar2[12], dados_andar2[13]);
-            delay(1500);
+            // Reset flag após exibir
+            dados_andar2[11] = 0;
+            needs_clear = true;
         }
         if(dados_terreo[11]==1){
             printf("  🚗 Carro %d entrou na vaga T%d\n", dados_terreo[12], dados_terreo[13]);
-            delay(1500);
+            // Reset flag após exibir
+            dados_terreo[11] = 0;
+            needs_clear = true;
         }
 
         printf("\n  ⚙️  COMANDOS:\n");
@@ -234,7 +258,8 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
         }
         printf("\n");
 
-        delay(1000);
+        // Delay mais suave para evitar piscar excessivo
+        usleep(100000); // 100ms em vez de 1000ms
     }  
 }
 
