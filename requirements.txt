@@ -1,0 +1,8 @@
+RPi.GPIO==0.7.1
+gpiozero==2.0.1
+pyserial==3.5
+minimalmodbus==2.1.1
+asyncio==3.4.3
+aiohttp==3.9.1
+python-dotenv==1.0.0
+
