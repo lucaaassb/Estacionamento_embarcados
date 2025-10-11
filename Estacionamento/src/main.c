@@ -10,16 +10,17 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <string.h>
-// Protótipos das funções principais
-int mainT();
-int mainC();
-int mainU();
-int mainD();
+#include <sys/types.h>
+#include "terreo.h"
+#include "central.h"
+#include "andar1.h"
+#include "andar2.h"
 
 
 int main(int argc, char **argv){
-    (void)argc;
+
     char opcao = argv[1][0];
+    pthread_t aux1,aux2,aux3,aux4;
 
     if(opcao == 't'){
         mainT();

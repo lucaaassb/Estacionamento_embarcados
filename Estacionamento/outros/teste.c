@@ -11,33 +11,24 @@
 #include <arpa/inet.h>
 #include <string.h>
 
-
 //ANDAR 2
-// Usando números GPIO BCM diretamente (alguns pinos físicos não têm constantes na biblioteca)
-#define ENDERECO_01 0                                       // GPIO 0 - Pino físico 27 - SAÍDA
-#define ENDERECO_02 5                                       // GPIO 5 - Pino físico 29 - SAÍDA
-#define ENDERECO_03 6                                       // GPIO 6 - Pino físico 31 - SAÍDA
-#define SENSOR_DE_VAGA 13                                   // GPIO 13 - Pino físico 33 - ENTRADA
-#define SENSOR_DE_PASSAGEM_1 19                             // GPIO 19 - Pino físico 35 - ENTRADA
-#define SENSOR_DE_PASSAGEM_2 26                             // GPIO 26 - Pino físico 37 - ENTRADA
-#define SINAL_DE_LOTADO_FECHADO2 RPI_V2_GPIO_P1_08          // GPIO 14 - Pino físico 8 - SAÍDA
+#define ENDERECO_01 RPI_V2_GPIO_P1_21                       // PINO 09 - SAÍDA
+#define ENDERECO_02 RPI_GPIO_P1_23                          // PINO 11 - SAÍDA
+#define ENDERECO_03 RPI_GPIO_P1_10                          // PINO 15 - SAÍDA
+#define SENSOR_DE_VAGA RPI_V2_GPIO_P5_03                    // PINO 01 - ENTRADA
+#define SENSOR_DE_PASSAGEM_1 RPI_GPIO_P1_26 //RPI_V2_GPIO_P1_13  //pino 00
+#define SENSOR_DE_PASSAGEM_2 RPI_GPIO_P1_26                 // PINO 07 - ENTRADA
+#define SINAL_DE_LOTADO_FECHADO2 RPI_V2_GPIO_P1_08          // PINO 14 - SAÍDA
 
 void configuraPinos2(){
     bcm2835_gpio_fsel(ENDERECO_01, BCM2835_GPIO_FSEL_OUTP);
     bcm2835_gpio_fsel(ENDERECO_02, BCM2835_GPIO_FSEL_OUTP);
     bcm2835_gpio_fsel(ENDERECO_03, BCM2835_GPIO_FSEL_OUTP);
-    bcm2835_gpio_fsel(SENSOR_DE_VAGA, BCM2835_GPIO_FSEL_INPT);
+    //bcm2835_gpio_fsel(SENSOR_DE_VAGA, BCM2835_GPIO_FSEL_INPT);
     bcm2835_gpio_fsel(SINAL_DE_LOTADO_FECHADO2, BCM2835_GPIO_FSEL_OUTP);
     bcm2835_gpio_fsel(SENSOR_DE_PASSAGEM_1, BCM2835_GPIO_FSEL_INPT);
     bcm2835_gpio_fsel(SENSOR_DE_PASSAGEM_2, BCM2835_GPIO_FSEL_INPT);
     
-    // Configura pull-down nos sensores de vaga para evitar leituras falsas
-    bcm2835_gpio_set_pud(SENSOR_DE_VAGA, BCM2835_GPIO_PUD_DOWN);
-    bcm2835_gpio_set_pud(SENSOR_DE_PASSAGEM_1, BCM2835_GPIO_PUD_DOWN);
-    bcm2835_gpio_set_pud(SENSOR_DE_PASSAGEM_2, BCM2835_GPIO_PUD_DOWN);
-    
-    // Inicializa sinal de lotado como LOW (não lotado)
-    bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO2, LOW);
 }
 /*
 parametros[0] = vagas disponiveis pcd;       parametros[10] = v[7].ocupado;
@@ -51,6 +42,7 @@ parametros[6] = v[4].ocupado;                parametros[17] = ;
 parametros[7] = v[5].ocupado;                parametros[18] =  
 parametros[8] = v[6].ocupado;                parametros[19] = 
 */
+
 
 typedef struct vaga{
     struct timeval hent;    // Horário de entrada do carro na vaga
@@ -70,29 +62,10 @@ vsoma t;
 int valor2;                          // Valor lido pelo sensor de vaga
 bool carroAndar2 = false;            // 0 = carro não está andando, 1 = carro está andando  
 int k2=0, j2=0, carroTotal2=0;
-int idoso2 = 2, pcd2 = 2, normal2 = 5, fechado2=0;
+int idoso2 = 2, pcd2 = 2, normal2 = 5;
 int anteriorSomaValores2 = 0;
-
-#define tamVetorEnviar 23
-#define tamVetorReceber 5
-
-int parametros2[tamVetorEnviar];
-int recebe2[tamVetorReceber];
-
-// Função para inicializar todas as vagas como vazias
-void inicializarVagas2(vaga *v){
-    printf("Inicializando 2º andar - Todas as vagas vazias\n");
-    for(int i = 0; i < 8; i++){
-        v[i].ocupado = 0;
-        v[i].boolocupado = 0;
-        v[i].ncarro = 0;
-        v[i].tempo = 0;
-    }
-    t.somaValores = 0;
-    t.somaVagas = 0;
-    anteriorSomaValores2 = 0;
-    printf("2º andar inicializado com sucesso - 8 vagas disponíveis\n");
-}
+int parametros2[20];
+int recebe2[4], fechado2=0;
 
 int separaIguala2(){
     
@@ -109,7 +82,7 @@ int separaIguala2(){
     parametros2[10] = b[7].boolocupado;
     parametros2[12] = recebe2[0];
     parametros2[18] = t.somaVagas;
-    fechado2 = recebe2[3];
+    fechado2=recebe2[3];
 }
 
 void vagasOcupadas2(vaga *v){
@@ -125,14 +98,6 @@ void vagasOcupadas2(vaga *v){
 }
 
 void * vagasDisponiveis2(vaga *p){
-    // Se o 2º andar está fechado, todas as vagas são consideradas indisponíveis
-    if(fechado2 == 1){
-        idoso2 = 0;
-        pcd2 = 0;
-        normal2 = 0;
-        return NULL;
-    }
-    
     idoso2 = 2;
     pcd2 = 1;
     normal2 = 5;
@@ -151,6 +116,7 @@ void * vagasDisponiveis2(vaga *p){
             
             else if(p[i].ocupado == 0)
                 p[i].boolocupado=0;
+
             
             idoso2 -= p[i].boolocupado;
         }
@@ -177,7 +143,7 @@ void pagamento2(int g, vaga *a){
     
     gettimeofday(&a[g-1].hsaida,0);
     a[g-1].tempo = timediff2(a[g-1].hent,a[g-1].hsaida)/60;
-    float f = (a[g-1].tempo*0.15);
+    float f = (a[g-1].tempo*0.1);
     parametros2[14]=1;
     parametros2[15]=a[g-1].ncarro;
     parametros2[16]=a[g-1].tempo;
@@ -188,25 +154,27 @@ void pagamento2(int g, vaga *a){
 
 void buscaCarro2(int f , vaga *a){
     f *= -1;
-    a[f-1].ncarro = parametros2[12];
+    a[f-1].ncarro = carroTotal2;
     gettimeofday(&a[f-1].hent,0);
     parametros2[11] = 1;
+    parametros2[12] = carroTotal2;
     parametros2[13] = f;
     delay(1000);
     parametros2[11] = 0;
 }
 
-void leituraVagasAndar2(vaga *b){
+void leituraVagasTerreo2(vaga *b){
     k2=0;       
     t.somaVagas = 0;
     t.somaValores = 0;
 
     while(1){
-    
+        system("clear");
         delay(50);
         vagasOcupadas2(b);
         vagasDisponiveis2(b);
         separaIguala2();
+
         //Primeira vaga
         bcm2835_gpio_write(ENDERECO_01, LOW);
         bcm2835_gpio_write(ENDERECO_02, LOW);
@@ -218,7 +186,7 @@ void leituraVagasAndar2(vaga *b){
             
         else if(valor2 == 0) 
             b[0].ocupado = 0;
-        
+        printf("Vaga 1: %d\n", b[0].ocupado);
         //Segunda vaga
         bcm2835_gpio_write(ENDERECO_01, HIGH);
         bcm2835_gpio_write(ENDERECO_02, LOW);
@@ -229,7 +197,7 @@ void leituraVagasAndar2(vaga *b){
             b[1].ocupado = 2;
         else if(valor2 == 0) 
             b[1].ocupado = 0;
-
+        printf("Vaga 2: %d\n", b[1].ocupado);
         //Terceira vaga
         bcm2835_gpio_write(ENDERECO_01, LOW);
         bcm2835_gpio_write(ENDERECO_02, HIGH);
@@ -240,7 +208,7 @@ void leituraVagasAndar2(vaga *b){
             b[2].ocupado = 3;
         else if(valor2 == 0) 
             b[2].ocupado = 0;        
-
+        printf("Vaga 3: %d\n", b[2].ocupado);
         //Quarta vaga
         bcm2835_gpio_write(ENDERECO_01, HIGH);
         bcm2835_gpio_write(ENDERECO_02, HIGH);
@@ -251,7 +219,7 @@ void leituraVagasAndar2(vaga *b){
             b[3].ocupado = 4;
         else if(valor2 == 0) 
             b[3].ocupado = 0;        
-
+        printf("Vaga 4: %d\n", b[3].ocupado);
         //Quinta vaga
         bcm2835_gpio_write(ENDERECO_01, LOW);
         bcm2835_gpio_write(ENDERECO_02, LOW);
@@ -262,7 +230,7 @@ void leituraVagasAndar2(vaga *b){
             b[4].ocupado = 5;
         else if(valor2 == 0) 
             b[4].ocupado = 0;        
-
+        printf("Vaga 5: %d\n", b[4].ocupado);
         //Sexta vaga
         bcm2835_gpio_write(ENDERECO_01, HIGH);
         bcm2835_gpio_write(ENDERECO_02, LOW);
@@ -273,7 +241,7 @@ void leituraVagasAndar2(vaga *b){
             b[5].ocupado = 6;
         else if(valor2 == 0) 
             b[5].ocupado = 0;        
-
+        printf("Vaga 6: %d\n", b[5].ocupado);
         //Sétima vaga
         bcm2835_gpio_write(ENDERECO_01, LOW);
         bcm2835_gpio_write(ENDERECO_02, HIGH);
@@ -284,6 +252,7 @@ void leituraVagasAndar2(vaga *b){
             b[6].ocupado = 7;
         else if(valor2 == 0) 
             b[6].ocupado = 0;
+        printf("Vaga 7: %d\n", b[6].ocupado);
 
         //Oitava vaga
         bcm2835_gpio_write(ENDERECO_01, HIGH);
@@ -295,7 +264,7 @@ void leituraVagasAndar2(vaga *b){
             b[7].ocupado = 8;
         else if(valor2 == 0) 
             b[7].ocupado = 0;
-
+        printf("Vaga 8: %d\n", b[7].ocupado);
 //-------------------------------------------------------------//
         k2 = mudancaEstadoVaga2(anteriorSomaValores2);
         if(k2>0 && k2<9){
@@ -306,29 +275,21 @@ void leituraVagasAndar2(vaga *b){
         } 
         anteriorSomaValores2 = t.somaValores;
         
-        if(t.somaVagas < 8 && fechado2 == 0){
-            bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO2, LOW);
-            parametros2[20] = 0;
-        }
-        else if(t.somaVagas==8){
+        if(t.somaVagas < 8 && fechado2 == 0)bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO2, LOW);
+        else if(t.somaVagas==8) bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO2, HIGH);
+        if(fechado2 == 1){
             bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO2, HIGH);
-            parametros2[20] = 1;
-        } 
-        else if(fechado2 == 1){
-            bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO2, HIGH);
-            parametros2[20] = 1;
-        } 
-        else if(fechado2 == 0 ) {
-            bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO2, LOW);
-            parametros2[20] = 0;
         }
+        else if(fechado2 == 0) bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO2, LOW);
+        printf("Vagas disponiveis: %d\n", t.somaVagas);
+        delay(1000);
     }
 }
 
 void *chamaLeitura2(){
-    leituraVagasAndar2(b);
+    leituraVagasTerreo2(b);
 }
-
+/*
 void *enviaParametros2(){
     char *ip ="127.0.0.1";
     int port = 10682;
@@ -351,37 +312,29 @@ void *enviaParametros2(){
     connect(sock, (struct sockaddr*)&addr, sizeof(addr));
     printf("Connected to Server\n");
     while(1){
-        send (sock, parametros2, tamVetorEnviar *sizeof(int) , 0);
-        recv(sock, recebe2, tamVetorReceber * sizeof(int), 0);
+        send (sock, parametros2, 20*sizeof(int) , 0);
+        recv(sock, recebe2, 4 * sizeof(int), 0);
+        printf("Fechado: %d\n", recebe2[3]);
         delay(1000);
     }
     close(sock);
     printf("Disconnected from server\n");
 }
-
-int mainD(){
+*/
+int main(){
    if (!bcm2835_init())
         return 1;
     configuraPinos2();
     
     b = calloc(8,sizeof(vaga));
     
-    // Inicializa todas as vagas como vazias
-    inicializarVagas2(b);
-    
-    // Aguarda 2 segundos para estabilizar os sensores
-    printf("Aguardando estabilização dos sensores...\n");
-    delay(2000);
-    
-    pthread_t fLeituraVagas2, fEnviaParametros2, fPassagemAndar2;
+    pthread_t fLeituraVagas2, fEnviaParametros2;
     
     pthread_create(&fLeituraVagas2, NULL, chamaLeitura2, NULL);
-    pthread_create(&fEnviaParametros2, NULL, enviaParametros2, NULL);
-    //pthread_create(&fPassagemAndar2, NULL, sensorPassagemB, NULL);
+    //pthread_create(&fEnviaParametros2, NULL, enviaParametros2, NULL);
     
     pthread_join(fLeituraVagas2, NULL);
-    pthread_join(fEnviaParametros2, NULL);
-    //pthread_join(fPassagemAndar2, NULL);
+    //pthread_join(fEnviaParametros2, NULL);
 
     bcm2835_close();
     return 0;

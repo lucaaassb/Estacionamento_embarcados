@@ -1,4 +1,3 @@
-#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,268 +9,637 @@
 #include <stdbool.h>
 #include <termios.h>
 #include <fcntl.h>
-#include <errno.h>
-#include <time.h>
-#include "modbus_utils.h"
-#include "common_utils.h"
-#include "json_utils.h"
-#include "http_server.h"
+#include <ctype.h>
 
-#define TAMANHO_VETOR_RECEBER 23
-#define TAMANHO_VETOR_ENVIAR 5
-static int dados_terreo[TAMANHO_VETOR_RECEBER];
-static int dados_andar1[TAMANHO_VETOR_RECEBER];
-static int dados_andar2[TAMANHO_VETOR_RECEBER];
-static int comandos_enviar[TAMANHO_VETOR_ENVIAR];
+#define tamVetorReceber 23
+#define tamVetorEnviar 5
+#define MAX_CARROS 20  // Capacidade máxima do estacionamento
+
+int terreo[tamVetorReceber];
+int andar1[tamVetorReceber];
+int andar2[tamVetorReceber];
+int enviar[tamVetorEnviar];
 int r = 0;
 int manual =  0;
 
-// Protótipos
-void mostrar_tickets_temporarios();
-void mostrar_alertas_auditoria();
-void calcular_e_processar_cobranca(const char* placa, time_t timestamp_entrada);
-void imprimir_recibo_saida(const char* placa, int tempo_minutos, float valor);
+// Estrutura para rastrear cada carro no estacionamento
+typedef struct {
+    int numero;           // Número do carro
+    int andar;            // 0=Térreo, 1=1ºAndar, 2=2ºAndar, -1=Vazio
+    int vaga;             // Número da vaga (1-4 térreo, 1-8 andares)
+    time_t timestamp;     // Hora de entrada
+    bool ativo;           // true=estacionado, false=slot vazio
+} CarroEstacionado;
 
+// Array global para rastrear todos os carros
+CarroEstacionado carros[MAX_CARROS];
+pthread_mutex_t mutex_carros = PTHREAD_MUTEX_INITIALIZER;
 
-/*
-parametros[0] = vagas disponiveis pcd;       parametros[10] = v[7].ocupado;
-parametros[1] = vagas disponiveis idoso;     parametros[11] = bool carro entrando;
-parametros[2] = vagas disponiveis regular;   parametros[12] = numero carro entrando ;
-parametros[3] = v[0].ocupado;                parametros[13] = vaga estacionada carro entrando;
-parametros[4] = v[1].ocupado;                parametros[14] = bool carro saindo;
-parametros[4] = v[2].ocupado;                parametros[15] = numero do carro saindo;
-parametros[5] = v[3].ocupado;                parametros[16] = tempo de permanencia do carro saindo;
-parametros[6] = v[4].ocupado;                parametros[17] = numero da vaga do carro saindo;
-parametros[7] = v[5].ocupado;                parametros[18] = quantidade de vagas ocupadas;
-parametros[8] = v[6].ocupado;                parametros[19] = carro em transito andares
-                                             parametros[20] = recebe sinal lotado andar;
-                                             parametros[21] = carro em transito terreo
-                                            */
-
-int kbhit(void)
-{
-  struct termios oldt, newt;
-  int ch;
-  int oldf;
- 
-  tcgetattr(STDIN_FILENO, &oldt);
-  newt = oldt;
-  newt.c_lflag &= ~(ICANON | ECHO);
-  tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-  oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
-  fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
- 
-  ch = getchar();
- 
-  tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
-  fcntl(STDIN_FILENO, F_SETFL, oldf);
- 
-  if(ch != EOF)
-  {
-    ungetc(ch, stdin);
-    return 1;
-  }
- 
-  return 0;
+/**
+ * @brief Verifica se há uma tecla pressionada no terminal (non-blocking)
+ * @return 1 se houver tecla pressionada, 0 caso contrário
+ */
+int kbhit(void) {
+    struct termios oldt, newt;
+    int ch;
+    int oldf;
+    
+    // Salva configurações atuais do terminal
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    
+    // Desabilita modo canônico e echo
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    
+    // Configura stdin como non-blocking
+    oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
+    fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
+    
+    // Tenta ler um caractere
+    ch = getchar();
+    
+    // Restaura configurações originais do terminal
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    fcntl(STDIN_FILENO, F_SETFL, oldf);
+    
+    // Verifica se uma tecla foi pressionada
+    if (ch != EOF) {
+        ungetc(ch, stdin);  // Devolve o caractere para o buffer
+        return 1;
+    }
+    
+    return 0;
 }
 
+/**
+ * @brief Limpa o buffer de entrada (stdin) para evitar leituras indesejadas
+ */
+void limparBuffer(void) {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+}
 
+/**
+ * @brief Registra evento no log do sistema
+ */
+void registrarEvento(const char *evento) {
+    FILE *log = fopen("estacionamento_log.txt", "a");
+    if(log) {
+        time_t t = time(NULL);
+        struct tm *tm_info = localtime(&t);
+        char buffer[64];
+        strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_info);
+        fprintf(log, "[%s] %s\n", buffer, evento);
+        fclose(log);
+    }
+}
 
+/**
+ * @brief Inicializa o sistema de rastreamento de carros
+ */
+void inicializarRastreamentoCarros() {
+    pthread_mutex_lock(&mutex_carros);
+    for(int i = 0; i < MAX_CARROS; i++) {
+        carros[i].numero = 0;
+        carros[i].andar = -1;
+        carros[i].vaga = 0;
+        carros[i].timestamp = 0;
+        carros[i].ativo = false;
+    }
+    pthread_mutex_unlock(&mutex_carros);
+    printf("[Sistema] Rastreamento de carros inicializado\n");
+    registrarEvento("🚀 SISTEMA INICIADO - Rastreamento ativo");
+}
+
+/**
+ * @brief Adiciona um carro ao sistema de rastreamento com log
+ * @param numeroCarro Número do carro
+ * @param andar Andar onde está (0=Térreo, 1=1ºAndar, 2=2ºAndar)
+ * @param vaga Número da vaga
+ * @return true se adicionado com sucesso, false se não houver espaço
+ */
+bool adicionarCarro(int numeroCarro, int andar, int vaga) {
+    pthread_mutex_lock(&mutex_carros);
+    
+    // Verifica se o carro já está no sistema (prevenção de duplicatas)
+    for(int i = 0; i < MAX_CARROS; i++) {
+        if(carros[i].ativo && carros[i].numero == numeroCarro) {
+            pthread_mutex_unlock(&mutex_carros);
+            printf("[Rastreamento] AVISO: Carro %d já está registrado!\n", numeroCarro);
+            return false; // Previne duplicata
+        }
+    }
+    
+    // Busca um slot vazio
+    for(int i = 0; i < MAX_CARROS; i++) {
+        if(!carros[i].ativo) {
+            carros[i].numero = numeroCarro;
+            carros[i].andar = andar;
+            carros[i].vaga = vaga;
+            carros[i].timestamp = time(NULL);
+            carros[i].ativo = true;
+            pthread_mutex_unlock(&mutex_carros);
+            
+            char andarNome[15];
+            if(andar == 0) sprintf(andarNome, "Térreo");
+            else if(andar == 1) sprintf(andarNome, "1º Andar");
+            else sprintf(andarNome, "2º Andar");
+            
+            printf("[Rastreamento] Carro %d adicionado → %s vaga %d\n", 
+                   numeroCarro, andarNome, vaga);
+            
+            // Log para arquivo
+            FILE *log = fopen("estacionamento_log.txt", "a");
+            if(log) {
+                time_t t = time(NULL);
+                struct tm *tm_info = localtime(&t);
+                char buffer[64];
+                strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_info);
+                fprintf(log, "[%s] ENTRADA - Carro %d → %s vaga %d\n", 
+                        buffer, numeroCarro, andarNome, vaga);
+                fclose(log);
+            }
+            
+            return true;
+        }
+    }
+    
+    pthread_mutex_unlock(&mutex_carros);
+    printf("[Rastreamento] ERRO: Capacidade máxima atingida!\n");
+    
+    // Log do erro
+    FILE *log = fopen("estacionamento_log.txt", "a");
+    if(log) {
+        time_t t = time(NULL);
+        struct tm *tm_info = localtime(&t);
+        char buffer[64];
+        strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_info);
+        fprintf(log, "[%s] ERRO - Capacidade máxima! Carro %d não pode entrar\n", 
+                buffer, numeroCarro);
+        fclose(log);
+    }
+    
+    return false;
+}
+
+/**
+ * @brief Remove um carro do sistema de rastreamento com validação de auditoria
+ * @param numeroCarro Número do carro a remover
+ * @return true se removido com sucesso, false se não encontrado
+ */
+bool removerCarro(int numeroCarro) {
+    pthread_mutex_lock(&mutex_carros);
+    
+    for(int i = 0; i < MAX_CARROS; i++) {
+        if(carros[i].ativo && carros[i].numero == numeroCarro) {
+            // Calcula tempo e valor para o log
+            time_t agora = time(NULL);
+            int segundos = (int)difftime(agora, carros[i].timestamp);
+            int minutos = (segundos + 59) / 60;
+            if(minutos < 1) minutos = 1;
+            float valor = minutos * 0.15;
+            
+            char andarNome[15];
+            if(carros[i].andar == 0) sprintf(andarNome, "Térreo");
+            else if(carros[i].andar == 1) sprintf(andarNome, "1º Andar");
+            else sprintf(andarNome, "2º Andar");
+            
+            printf("[Rastreamento] Carro %d removido - %s vaga %d - %dmin - R$ %.2f\n", 
+                   numeroCarro, andarNome, carros[i].vaga, minutos, valor);
+            
+            // Log para arquivo
+            FILE *log = fopen("estacionamento_log.txt", "a");
+            if(log) {
+                time_t t = time(NULL);
+                struct tm *tm_info = localtime(&t);
+                char buffer[64];
+                strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_info);
+                fprintf(log, "[%s] SAIDA - Carro %d - %s vaga %d - %dmin - R$ %.2f\n", 
+                        buffer, numeroCarro, andarNome, carros[i].vaga, minutos, valor);
+                fclose(log);
+            }
+            
+            carros[i].ativo = false;
+            pthread_mutex_unlock(&mutex_carros);
+            return true;
+        }
+    }
+    
+    pthread_mutex_unlock(&mutex_carros);
+    
+    // ⚠️ ALERTA DE AUDITORIA - Carro saindo sem entrada registrada
+    printf("\n");
+    printf("╔══════════════════════════════════════════════════════════╗\n");
+    printf("║  ⚠️  ALERTA DE AUDITORIA - INCONSISTÊNCIA DETECTADA  ⚠️  ║\n");
+    printf("╠══════════════════════════════════════════════════════════╣\n");
+    printf("║  Carro #%d tentou SAIR sem registro de ENTRADA         ║\n", numeroCarro);
+    printf("║  Possíveis causas:                                      ║\n");
+    printf("║  • Falha no sensor de entrada                           ║\n");
+    printf("║  • Entrada não registrada no sistema                    ║\n");
+    printf("║  • Número de carro incorreto                            ║\n");
+    printf("╚══════════════════════════════════════════════════════════╝\n");
+    printf("\n");
+    
+    // Log do alerta para arquivo
+    FILE *log = fopen("estacionamento_log.txt", "a");
+    if(log) {
+        time_t t = time(NULL);
+        struct tm *tm_info = localtime(&t);
+        char buffer[64];
+        strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_info);
+        fprintf(log, "[%s] ⚠️ AUDITORIA - Carro %d saiu SEM ENTRADA REGISTRADA!\n", 
+                buffer, numeroCarro);
+        fclose(log);
+    }
+    
+    return false;
+}
+
+/**
+ * @brief Busca informações de um carro específico
+ * @param numeroCarro Número do carro
+ * @param andar Ponteiro para armazenar o andar (saída)
+ * @param vaga Ponteiro para armazenar a vaga (saída)
+ * @return true se encontrado, false caso contrário
+ */
+bool buscarCarro(int numeroCarro, int *andar, int *vaga) {
+    pthread_mutex_lock(&mutex_carros);
+    
+    for(int i = 0; i < MAX_CARROS; i++) {
+        if(carros[i].ativo && carros[i].numero == numeroCarro) {
+            *andar = carros[i].andar;
+            *vaga = carros[i].vaga;
+            pthread_mutex_unlock(&mutex_carros);
+            return true;
+        }
+    }
+    
+    pthread_mutex_unlock(&mutex_carros);
+    return false;
+}
+
+/**
+ * @brief Exibe o log recente do estacionamento
+ */
+void visualizarLog() {
+    system("clear");
+    printf("\n╔════════════════════════════════════════════════════════════════════════════╗\n");
+    printf("║                   📜 LOG DE EVENTOS DO ESTACIONAMENTO                     ║\n");
+    printf("╚════════════════════════════════════════════════════════════════════════════╝\n\n");
+    
+    FILE *log = fopen("estacionamento_log.txt", "r");
+    if(!log) {
+        printf("  ℹ️  Nenhum log disponível ainda.\n");
+        printf("     O arquivo será criado automaticamente com as operações.\n\n");
+    } else {
+        char linha[256];
+        int count = 0;
+        
+        // Conta linhas para mostrar apenas as últimas 30
+        while(fgets(linha, sizeof(linha), log)) count++;
+        
+        rewind(log);
+        int skip = (count > 30) ? (count - 30) : 0;
+        count = 0;
+        
+        while(fgets(linha, sizeof(linha), log)) {
+            if(count >= skip) {
+                printf("%s", linha);
+            }
+            count++;
+        }
+        
+        fclose(log);
+        printf("\n  💡 Mostrando últimas 30 entradas (total: %d eventos)\n", count);
+    }
+    
+    printf("\n");
+    printf("Pressione ENTER para voltar ao menu...\n");
+    limparBuffer();
+    getchar();
+}
+
+/**
+ * @brief Lista todos os carros estacionados com tempo e valor a pagar
+ */
+void listarTodosCarros() {
+    pthread_mutex_lock(&mutex_carros);
+    
+    system("clear");
+    printf("\n╔════════════════════════════════════════════════════════════════════════════╗\n");
+    printf("║                  📋 CARROS ESTACIONADOS NO MOMENTO                        ║\n");
+    printf("╚════════════════════════════════════════════════════════════════════════════╝\n\n");
+    
+    printf("┌────────┬──────────┬──────┬─────────────────┬──────────────────┐\n");
+    printf("│ Carro  │  Andar   │ Vaga │ Tempo Estac.    │  Valor a Pagar   │\n");
+    printf("├────────┼──────────┼──────┼─────────────────┼──────────────────┤\n");
+    
+    int totalCarros = 0;
+    float totalArrecadado = 0.0;
+    time_t agora = time(NULL);
+    
+    for(int i = 0; i < MAX_CARROS; i++) {
+        if(carros[i].ativo) {
+            char andarNome[15];
+            if(carros[i].andar == 0) sprintf(andarNome, "Térreo");
+            else if(carros[i].andar == 1) sprintf(andarNome, "1º Andar");
+            else sprintf(andarNome, "2º Andar");
+            
+            // Calcula tempo total em minutos (arredonda para cima)
+            int segundos = (int)difftime(agora, carros[i].timestamp);
+            int minutosTotais = (segundos + 59) / 60; // Arredonda para cima: qualquer fração = 1 minuto
+            int horas = minutosTotais / 60;
+            int minutos = minutosTotais % 60;
+            
+            // Calcula valor a pagar (R$ 0,15 por minuto, mínimo R$ 0,15)
+            if(minutosTotais < 1) minutosTotais = 1; // Mínimo de 1 minuto
+            float valorAPagar = minutosTotais * 0.15;
+            totalArrecadado += valorAPagar;
+            
+            printf("│   %2d   │ %-8s │  %2d  │  %2dh %2dmin      │   R$ %7.2f    │\n", 
+                   carros[i].numero, andarNome, carros[i].vaga, horas, minutos, valorAPagar);
+            totalCarros++;
+        }
+    }
+    
+    if(totalCarros == 0) {
+        printf("│                    Nenhum carro estacionado                           │\n");
+    }
+    
+    printf("└────────┴──────────┴──────┴─────────────────┴──────────────────┘\n");
+    printf("\n");
+    printf("  📊 Estatísticas:\n");
+    printf("     • Total de carros: %d / %d\n", totalCarros, MAX_CARROS);
+    printf("     • Arrecadação prevista: R$ %.2f\n", totalArrecadado);
+    printf("     • Vagas livres: %d\n", MAX_CARROS - totalCarros);
+    printf("\n");
+    printf("  💡 Nota: Valores arredondados para cima (mínimo R$ 0,15)\n");
+    printf("           Qualquer fração de minuto = 1 minuto completo\n");
+    printf("\n");
+    
+    pthread_mutex_unlock(&mutex_carros);
+    
+    printf("Pressione ENTER para voltar ao menu...\n");
+    limparBuffer();
+    getchar();
+}
 
 void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRecebeSegundoAndar){
-    // Variáveis para controle de timing
-    static time_t last_update = 0;
-    static bool needs_clear = true;
-    
+
+    bool pausarAtualizacao = false;
+
     while(1){
-        time_t current_time = time(NULL);
-        
-        // Só limpa a tela se necessário e com intervalo mínimo
-        if (needs_clear && (current_time - last_update >= 1)) {
+        if(!pausarAtualizacao){
             system("clear");
-            needs_clear = false;
-            last_update = current_time;
         }
-        
-        printf("╔══════════════════════════════════════════════════════════════════════════════╗\n");
-        printf("║                        SISTEMA DE CONTROLE DE ESTACIONAMENTO                 ║\n");
-        printf("╚══════════════════════════════════════════════════════════════════════════════╝\n\n");
-        
-        printf("  📍 MAPA DE VAGAS OCUPADAS:\n");
-        printf("                  │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │ 7 │ 8 │\n");
-        printf("                   ────────────────────────────────\n");        
-        printf("      2º Andar: B │ %d │ %d │ %d │ %d │ %d │ %d │ %d │ %d │\n", 
-               dados_andar2[3], dados_andar2[4], dados_andar2[5], dados_andar2[6], 
-               dados_andar2[7], dados_andar2[8], dados_andar2[9], dados_andar2[10]);
-        printf("                   ────────────────────────────────\n");   
-        printf("      1º Andar: A │ %d │ %d │ %d │ %d │ %d │ %d │ %d │ %d │\n", 
-               dados_andar1[3], dados_andar1[4], dados_andar1[5], dados_andar1[6], 
-               dados_andar1[7], dados_andar1[8], dados_andar1[9], dados_andar1[10]);
-        printf("                   ────────────────────────────────\n");   
-        printf("      Térreo:   T │ %d │ %d │ %d │ %d │ - │ - │ - │ - │\n", 
-               dados_terreo[3], dados_terreo[4], dados_terreo[5], dados_terreo[6]);
-        printf("                   ────────────────────────────────\n\n"); 
+        printf("  Vagas ocupadas:\n");
+        printf("                  | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |\n");
+        printf("                   -------------------------------\n");        
+        printf("      2º Andar: B | %d | %d | %d | %d | %d | %d | %d | %d |\n", andar2[3], andar2[4], andar2[5], andar2[6], andar2[7], andar2[8], andar2[9], andar2[10]);
+        printf("                   -------------------------------\n");   
+        printf("      1º Andar: A | %d | %d | %d | %d | %d | %d | %d | %d |\n", andar1[3], andar1[4], andar1[5], andar1[6], andar1[7], andar1[8], andar1[9], andar1[10]);
+        printf("                   -------------------------------\n");   
+        printf("      Terreo:   T | %d | %d | %d | %d | - | - | - | - |\n", terreo[3], terreo[4], terreo[5], terreo[6]);
+        printf("                   -------------------------------\n"); 
 
-        printf("  📊 VAGAS DISPONÍVEIS:\n");
-        printf("                  │ PcD │ Idoso │ Regular │ Total │\n");
-        printf("                   ────────────────────────────────\n"); 
-        printf("      2º Andar:   │  %d  │   %d   │    %d    │   %d   │\n", 
-               dados_andar2[0], dados_andar2[1], dados_andar2[2], 
-               dados_andar2[0]+dados_andar2[1]+dados_andar2[2]);
-        printf("                   ────────────────────────────────\n"); 
-        printf("      1º Andar:   │  %d  │   %d   │    %d    │   %d   │\n", 
-               dados_andar1[0], dados_andar1[1], dados_andar1[2], 
-               dados_andar1[0]+dados_andar1[1]+dados_andar1[2]);
-        printf("                   ────────────────────────────────\n"); 
-        printf("      Térreo:     │  %d  │   %d   │    %d    │   %d   │\n", 
-               dados_terreo[0], dados_terreo[1], dados_terreo[2], 
-               dados_terreo[0]+dados_terreo[1]+dados_terreo[2]);
-        printf("                   ────────────────────────────────\n\n"); 
+        printf("\n  Vagas disponíveis no estacionamento:\n");
+        printf("                  | PcD | Idoso | Regular | Total |\n");
+        printf("                   -------------------------------\n"); 
+        printf("      2º Andar:   |  %d  |   %d   |    %d    |   %d   |\n", andar2[0], andar2[1], andar2[2], andar2[0]+andar2[1]+andar2[2]);
+        printf("                   -------------------------------\n"); 
+        printf("      1º Andar:   |  %d  |   %d   |    %d    |   %d   |\n", andar1[0], andar1[1], andar1[2], andar1[0]+andar1[1]+andar1[2]);
+        printf("                   -------------------------------\n"); 
+        printf("      Terreo:     |  %d  |   %d   |    %d    |   %d   |\n", terreo[0], terreo[1], terreo[2], terreo[0]+terreo[1]+terreo[2]);
+        printf("                   -------------------------------\n"); 
+        printf("\n  Carros no estacionamento:\n");
         
-        printf("  🚗 CARROS NO ESTACIONAMENTO:\n");
-        printf("                  │ Total │ Térreo │ 1º andar │ 2º andar │\n");
-        printf("                  │   %d   │    %d   │     %d    │     %d    │\n", 
-               dados_terreo[18]+dados_andar1[18]+dados_andar2[18], 
-               dados_terreo[18], dados_andar1[18], dados_andar2[18]);
-        printf("                   ──────────────────────────────────────\n\n");
+
         
-        // Status do sistema
-        if(comandos_enviar[1] == 1){
-            printf("  🚫 ESTACIONAMENTO FECHADO\n");
-        }
-        if(dados_andar1[20] == 1){
-            printf("  🚫 1º ANDAR FECHADO\n");
-        }
-        if(dados_andar2[20] == 1){
-            printf("  🚫 2º ANDAR FECHADO\n");
-        }
+        printf("                  | Total | Terreo | 1º andar | 2º andar | \n");
+        printf("                  |   %d   |    %d   |     %d    |     %d    | \n", terreo[18]+andar1[18]+andar2[18] , terreo[18], andar1[18], andar2[18]);
+        float y = (andar1[16])*0.15;
+        float w = (andar2[16])*0.15;
+        float z = (terreo[16])*0.15; 
         
-        // Eventos recentes (sem delay para evitar travamento)
-        if(dados_andar1[14]==1){
-            float valor = (dados_andar1[16]) * 0.15f;
-            printf("  💰 Carro %d saiu da vaga A%d - Pagou R$ %.2f\n", 
-                   dados_andar1[15], dados_andar1[17], valor);
-            // Reset flag após exibir
-            dados_andar1[14] = 0;
-            needs_clear = true;
+        if(enviar[1] == 1){
+            printf("\n              -----------------------------------\n");
+            printf("             |      Estacionamento fechado       |\n");
+            printf("              -----------------------------------\n");
         }
-        if(dados_andar2[14]==1){
-            float valor = (dados_andar2[16]) * 0.15f;
-            printf("  💰 Carro %d saiu da vaga B%d - Pagou R$ %.2f\n", 
-                   dados_andar2[15], dados_andar2[17], valor);
-            // Reset flag após exibir
-            dados_andar2[14] = 0;
-            needs_clear = true;
+        if(andar1[20] == 1){
+            printf("\n              -----------------------------------\n");
+            printf("             |          1º andar fechado         |\n");
+            printf("              -----------------------------------\n");
+        }
+        if(andar2[20] == 1){
+            printf("\n              -----------------------------------\n");
+            printf("             |          2º andar fechado         |\n");
+            printf("              -----------------------------------\n");
+        }
+        if(andar1[14]==1){
+            printf("\n              ------------------------------------\n");
+            printf("             | Carro %d saiu da vaga A%d pagou %.2f |\n", andar1[15], andar1[17], y);
+            printf("              ------------------------------------\n");
+            removerCarro(andar1[15]);  // Remove do rastreamento
+            delay(1500);
+        }
+        if(andar2[14]==1){
+            printf("\n              ------------------------------------\n");
+            printf("             | Carro %d saiu da vaga B%d pagou %.2f |\n", andar2[15], andar2[17], w);
+            printf("              ------------------------------------\n");
+            removerCarro(andar2[15]);  // Remove do rastreamento
+            delay(1500);
         }   
-        if(dados_terreo[14]==1){
-            float valor = (dados_terreo[16]) * 0.15f;
-            printf("  💰 Carro %d saiu da vaga T%d - Pagou R$ %.2f\n", 
-                   dados_terreo[15], dados_terreo[17], valor);
-            // Reset flag após exibir
-            dados_terreo[14] = 0;
-            needs_clear = true;
+        if(terreo[14]==1){
+            printf("\n              ------------------------------------\n");
+            printf("             | Carro %d saiu da vaga T%d pagou %.2f |\n", terreo[15], terreo[17], z);
+            printf("              ------------------------------------\n");
+            removerCarro(terreo[15]);  // Remove do rastreamento
+            delay(1500);
         }
-        if(dados_andar1[11]==1){
-            printf("  🚗 Carro %d entrou na vaga A%d\n", dados_andar1[12], dados_andar1[13]);
-            // Reset flag após exibir
-            dados_andar1[11] = 0;
-            needs_clear = true;
+        // Controle de entradas - previne duplicatas
+        static int ultimoCarroTerreo = 0, ultimoCarroA1 = 0, ultimoCarroA2 = 0;
+        
+        if(andar1[11]==1 && andar1[12] != ultimoCarroA1){
+            printf("\n                       ---------------------------\n");
+            printf("                      | Carro %d entrou na vaga A%d |\n", andar1[12], andar1[13]);
+            printf("                       ---------------------------\n");
+            adicionarCarro(andar1[12], 1, andar1[13]);  // Registra no rastreamento
+            ultimoCarroA1 = andar1[12];
+            delay(1500);
+        } else if(andar1[11] == 0) {
+            ultimoCarroA1 = 0;  // Reseta quando flag desativa
         }
-        if(dados_andar2[11]==1){
-            printf("  🚗 Carro %d entrou na vaga B%d\n", dados_andar2[12], dados_andar2[13]);
-            // Reset flag após exibir
-            dados_andar2[11] = 0;
-            needs_clear = true;
+        
+        if(andar2[11]==1 && andar2[12] != ultimoCarroA2){
+            printf("\n                       ---------------------------\n");
+            printf("                      | Carro %d entrou na vaga B%d |\n", andar2[12], andar2[13]);
+            printf("                       ---------------------------\n");
+            adicionarCarro(andar2[12], 2, andar2[13]);  // Registra no rastreamento
+            ultimoCarroA2 = andar2[12];
+            delay(1500);
+        } else if(andar2[11] == 0) {
+            ultimoCarroA2 = 0;  // Reseta quando flag desativa
         }
-        if(dados_terreo[11]==1){
-            printf("  🚗 Carro %d entrou na vaga T%d\n", dados_terreo[12], dados_terreo[13]);
-            // Reset flag após exibir
-            dados_terreo[11] = 0;
-            needs_clear = true;
+        
+        if(terreo[11]==1 && terreo[12] != ultimoCarroTerreo){
+            printf("\n                       ---------------------------\n");
+            printf("                      | Carro %d entrou na vaga T%d |\n", terreo[12], terreo[13]);
+            printf("                       ---------------------------\n");
+            adicionarCarro(terreo[12], 0, terreo[13]);  // Registra no rastreamento
+            ultimoCarroTerreo = terreo[12];
+            delay(1500);
+        } else if(terreo[11] == 0) {
+            ultimoCarroTerreo = 0;  // Reseta quando flag desativa
         }
 
-        printf("\n  ⚙️  COMANDOS:\n");
+        printf("\n  Opções:\n");
         printf("  1 - Abrir estacionamento\n");
         printf("  2 - Fechar estacionamento\n");
-        printf("  3 - Ativar 1º andar\n");
-        printf("  4 - Desativar 1º andar\n");
-        printf("  5 - Ativar 2º andar\n");
-        printf("  6 - Desativar 2º andar\n");
-        printf("  7 - Ver tickets temporários\n");
-        printf("  8 - Ver alertas de auditoria\n");
+        printf("  3 - Ativar 1 andar\n");
+        printf("  4 - Desativar 1 andar\n");
+        printf("  5 - Ativar 2 andar\n");
+        printf("  6 - Desativar 2 andar\n");
+        printf("  7 - 📋 Listar todos os carros\n");
+        printf("  8 - 📜 Visualizar log de eventos\n");
         printf("  q - Encerrar estacionamento\n\n");      
-
-        // Lógica automática de fechamento
-        if((dados_terreo[18] == 4 && r==0 && (dados_andar1[18]== 8 || dados_andar1[20] == 1) && (dados_andar2[18] == 8 || dados_andar2[20] == 1))){
-            comandos_enviar[1] = 1;
+        
+        // Fechamento automático quando lotado (apenas se não estiver em modo manual)
+        if((terreo[18] == 8 && r==0 && manual == 0 &&(andar1[18]== 8 || andar1[20] == 1) && (andar2[18] == 8 || andar2[20] == 1))){
+            enviar[1] = 1;
             r = 1;
+            registrarEvento("🔴 ESTACIONAMENTO FECHADO automaticamente (lotado)");
         } 
-        else if(((dados_terreo[18] < 4 && r == 1) || dados_andar1[20] == 0 || dados_andar2[20] == 0) && manual == 0){
-            comandos_enviar[1] = 0;          
+        // Reabertura automática (apenas se não estiver em modo manual de fechamento)
+        else if((terreo[18] < 8 || andar1[20] == 0 || andar2[20] == 0) && r == 1 && manual == 0){
+            enviar[1] = 0;          
             r = 0;
+            registrarEvento("🟢 ESTACIONAMENTO ABERTO automaticamente (vagas disponíveis)");
         }
-
+        
         if(kbhit()){
-            char opcao = getchar();
+            char opcao = toupper(getchar());  // Converte para maiúscula
+            pausarAtualizacao = true;
             
             switch(opcao)
             {
             case '1':
-                comandos_enviar[1] = 0;
-                r = 0;
-                manual = 0;
-                log_info("Estacionamento aberto manualmente");
+                system("clear");
+                enviar[1] = 0;
+                r =0;
+                manual=0;
+                printf("\n╔════════════════════════════════════════╗\n");
+                printf("║   >>> ESTACIONAMENTO ABERTO <<<       ║\n");
+                printf("╚════════════════════════════════════════╝\n");
+                registrarEvento("🟢 ESTACIONAMENTO ABERTO manualmente");
+                printf("\nPressione ENTER para continuar...\n");
+                limparBuffer();
+                getchar();
+                pausarAtualizacao = false;
                 break;
             case '2':
-                comandos_enviar[1] = 1;
+                system("clear");
+                enviar[1] = 1;
                 r = 1;
                 manual = 1;
-                log_info("Estacionamento fechado manualmente");
+                printf("\n╔════════════════════════════════════════╗\n");
+                printf("║   >>> ESTACIONAMENTO FECHADO <<<      ║\n");
+                printf("╚════════════════════════════════════════╝\n");
+                registrarEvento("🔴 ESTACIONAMENTO FECHADO manualmente");
+                printf("\nPressione ENTER para continuar...\n");
+                limparBuffer();
+                getchar();
+                pausarAtualizacao = false;
                 break;
             case '3':
-                comandos_enviar[2] = 0;
-                log_info("1º andar ativado");
+                system("clear");
+                enviar[2] = 0;
+                printf("\n╔════════════════════════════════════════╗\n");
+                printf("║   >>> 1º ANDAR ATIVADO <<<            ║\n");
+                printf("╚════════════════════════════════════════╝\n");
+                registrarEvento("🟢 1º ANDAR ATIVADO");
+                printf("\nPressione ENTER para continuar...\n");
+                limparBuffer();
+                getchar();
+                pausarAtualizacao = false;
                 break;
             case '4':
-                comandos_enviar[2] = 1;
-                log_info("1º andar desativado");
+                system("clear");
+                enviar[2] = 1;
+                printf("\n╔════════════════════════════════════════╗\n");
+                printf("║   >>> 1º ANDAR DESATIVADO <<<         ║\n");
+                printf("╚════════════════════════════════════════╝\n");
+                registrarEvento("🔴 1º ANDAR DESATIVADO");
+                printf("\nPressione ENTER para continuar...\n");
+                limparBuffer();
+                getchar();
+                pausarAtualizacao = false;
                 break;
-            case '5':
-                comandos_enviar[3] = 0;
-                log_info("2º andar ativado");
+            case'5':
+                system("clear");
+                enviar[3] = 0;
+                printf("\n╔════════════════════════════════════════╗\n");
+                printf("║   >>> 2º ANDAR ATIVADO <<<            ║\n");
+                printf("╚════════════════════════════════════════╝\n");
+                registrarEvento("🟢 2º ANDAR ATIVADO");
+                printf("\nPressione ENTER para continuar...\n");
+                limparBuffer();
+                getchar();
+                pausarAtualizacao = false;
                 break;
-            case '6':
-                comandos_enviar[3] = 1;
-                log_info("2º andar desativado");
+            case'6':
+                system("clear");
+                enviar[3] = 1;
+                printf("\n╔════════════════════════════════════════╗\n");
+                printf("║   >>> 2º ANDAR DESATIVADO <<<         ║\n");
+                printf("╚════════════════════════════════════════╝\n");
+                registrarEvento("🔴 2º ANDAR DESATIVADO");
+                printf("\nPressione ENTER para continuar...\n");
+                limparBuffer();
+                getchar();
+                pausarAtualizacao = false;
                 break;
             case '7':
-                mostrar_tickets_temporarios();
-                needs_clear = true;
+                listarTodosCarros();  // Lista todos os carros estacionados
+                pausarAtualizacao = false;
                 break;
             case '8':
-                mostrar_alertas_auditoria();
-                needs_clear = true;
+                visualizarLog();  // Mostra log de eventos
+                pausarAtualizacao = false;
                 break;
-            case 'q':
-                log_info("Encerrando sistema...");
+            case 'Q':  // Aceita 'q' ou 'Q' (convertido por toupper)
+                system("clear");
+                printf("\n╔════════════════════════════════════════╗\n");
+                printf("║   >>> ENCERRANDO ESTACIONAMENTO <<<   ║\n");
+                printf("╚════════════════════════════════════════╝\n");
+                delay(1000);
                 pthread_cancel(fRecebeTerreo);
                 pthread_cancel(fRecebePrimeiroAndar);
                 pthread_cancel(fRecebeSegundoAndar);
                 exit(0);
+            case '\n':
+            case '\r':
+                // Ignora Enter e caracteres de controle
+                pausarAtualizacao = false;
+                break;
             default:
+                pausarAtualizacao = false;
                 break;
             }
+            
         }
-        printf("\n");
-
-        // Delay mais suave para evitar piscar excessivo
-        usleep(100000); // 100ms em vez de 1000ms
+        
+        if(!pausarAtualizacao){
+            printf("\n");
+            delay(1000);
+        }
     }  
 }
 
     
 void *recebePrimeiroAndar(){
-    char *ip ="0.0.0.0";  // Escutar em todas as interfaces
+    char *ip ="127.0.0.1";
     int port = 10681;
 
     int server_sock, client_sock;
@@ -302,37 +670,14 @@ void *recebePrimeiroAndar(){
     
     printf("[+]Listening...\n");
 
-    addr_size = sizeof(client_addr);
-    client_sock = accept(server_sock, (struct sockaddr*)&client_addr, &addr_size);
-    printf("Client Connected\n");
-    
-    char json_buffer[1024];
-    vaga_status_t status_resposta;
+
+        addr_size = sizeof(client_addr);
+        client_sock = accept(server_sock, (struct sockaddr*)&client_addr, &addr_size);
+        printf("Client Connected\n");
     
     while(1){
-        // Receber mensagem JSON do 1º andar
-        if (receive_json_message(client_sock, json_buffer, sizeof(json_buffer)) == 0) {
-            printf("Recebido do 1º andar: %s\n", json_buffer);
-            
-            // Processar mensagem recebida (pode ser entrada, saída, passagem, etc.)
-            // Por enquanto, manter compatibilidade com arrays antigos
-            recv(client_sock, dados_andar1, TAMANHO_VETOR_RECEBER * sizeof(int), 0);
-        }
-        
-        // Enviar resposta JSON
-        strcpy(status_resposta.tipo, "vaga_status");
-        status_resposta.livres_a1 = dados_andar1[0] + dados_andar1[1] + dados_andar1[2];
-        status_resposta.livres_a2 = dados_andar2[0] + dados_andar2[1] + dados_andar2[2];
-        status_resposta.livres_total = status_resposta.livres_a1 + status_resposta.livres_a2;
-        status_resposta.flags.lotado = (dados_andar1[20] == 1 || dados_andar2[20] == 1);
-        status_resposta.flags.bloq2 = (dados_andar2[20] == 1);
-        
-        char response_json[512];
-        serialize_vaga_status(&status_resposta, response_json, sizeof(response_json));
-        send_json_message(client_sock, response_json);
-        // Enviar comandos para o 1º andar
-        send(client_sock, comandos_enviar, TAMANHO_VETOR_ENVIAR * sizeof(int), 0);
-        
+        recv(client_sock, andar1, tamVetorReceber * sizeof(int), 0);
+        send (client_sock, enviar, tamVetorEnviar *sizeof(int) , 0);
         delay(1000);
     }
     close(client_sock);
@@ -340,7 +685,7 @@ void *recebePrimeiroAndar(){
 }
 
 void *recebeSegundoAndar(){
-    char *ip ="0.0.0.0";  // Escutar em todas as interfaces
+    char *ip ="127.0.0.1";
     int port = 10682;
 
     int server_sock, client_sock;
@@ -371,37 +716,14 @@ void *recebeSegundoAndar(){
     
     printf("[+]Listening...\n");
 
-    addr_size = sizeof(client_addr);
-    client_sock = accept(server_sock, (struct sockaddr*)&client_addr, &addr_size);
-    printf("Client Connected\n");
-    
-    char json_buffer[1024];
-    vaga_status_t status_resposta;
+
+        addr_size = sizeof(client_addr);
+        client_sock = accept(server_sock, (struct sockaddr*)&client_addr, &addr_size);
+        printf("Client Connected\n");
     
     while(1){
-        // Receber mensagem JSON do 2º andar
-        if (receive_json_message(client_sock, json_buffer, sizeof(json_buffer)) == 0) {
-            printf("Recebido do 2º andar: %s\n", json_buffer);
-            
-            // Processar mensagem recebida (pode ser entrada, saída, passagem, etc.)
-            // Por enquanto, manter compatibilidade com arrays antigos
-            recv(client_sock, dados_andar2, TAMANHO_VETOR_RECEBER * sizeof(int), 0);
-        }
-        
-        // Enviar resposta JSON
-        strcpy(status_resposta.tipo, "vaga_status");
-        status_resposta.livres_a1 = dados_andar1[0] + dados_andar1[1] + dados_andar1[2];
-        status_resposta.livres_a2 = dados_andar2[0] + dados_andar2[1] + dados_andar2[2];
-        status_resposta.livres_total = status_resposta.livres_a1 + status_resposta.livres_a2;
-        status_resposta.flags.lotado = (dados_andar1[20] == 1 || dados_andar2[20] == 1);
-        status_resposta.flags.bloq2 = (dados_andar2[20] == 1);
-        
-        char response_json[512];
-        serialize_vaga_status(&status_resposta, response_json, sizeof(response_json));
-        send_json_message(client_sock, response_json);
-        // Enviar comandos para o 2º andar
-        send(client_sock, comandos_enviar, TAMANHO_VETOR_ENVIAR * sizeof(int), 0);
-        
+        recv(client_sock, andar2, tamVetorReceber * sizeof(int), 0);
+        send (client_sock, enviar, tamVetorEnviar *sizeof(int) , 0);
         delay(1000);
     }
     close(client_sock);
@@ -409,7 +731,7 @@ void *recebeSegundoAndar(){
 }
 
 void *recebeTerreo(){
-    char *ip ="0.0.0.0";  // Escutar em todas as interfaces
+    char *ip ="127.0.0.1";
     int port = 10683;
 
     int server_sock, client_sock;
@@ -441,273 +763,44 @@ void *recebeTerreo(){
     
     printf("[+]Listening...\n");
 
-    addr_size = sizeof(client_addr);
-    client_sock = accept(server_sock, (struct sockaddr*)&client_addr, &addr_size);
-    printf("Client 3 Connected\n");
-    
-    char json_buffer[1024];
-    vaga_status_t status_resposta;
+
+        addr_size = sizeof(client_addr);
+        client_sock = accept(server_sock, (struct sockaddr*)&client_addr, &addr_size);
+
+
+        printf("Client 3 Connected\n");
     
     while(1){
-        // Receber mensagem JSON do térreo
-        if (receive_json_message(client_sock, json_buffer, sizeof(json_buffer)) == 0) {
-            printf("Recebido do térreo: %s\n", json_buffer);
-            
-            // Processar mensagem recebida (pode ser entrada, saída, passagem, etc.)
-            // Por enquanto, manter compatibilidade com arrays antigos
-            recv(client_sock, dados_terreo, TAMANHO_VETOR_RECEBER * sizeof(int), 0);
-        }
-        
-        // Enviar resposta JSON
-        strcpy(status_resposta.tipo, "vaga_status");
-        status_resposta.livres_a1 = dados_andar1[0] + dados_andar1[1] + dados_andar1[2];
-        status_resposta.livres_a2 = dados_andar2[0] + dados_andar2[1] + dados_andar2[2];
-        status_resposta.livres_total = status_resposta.livres_a1 + status_resposta.livres_a2;
-        status_resposta.flags.lotado = (dados_andar1[20] == 1 || dados_andar2[20] == 1);
-        status_resposta.flags.bloq2 = (dados_andar2[20] == 1);
-        
-        char response_json[512];
-        serialize_vaga_status(&status_resposta, response_json, sizeof(response_json));
-        send_json_message(client_sock, response_json);
-        
-        // Opcional: exemplo de atualização de algum comando baseado no térreo
-        comandos_enviar[0] = dados_terreo[12];
-        // Enviar comandos para o térreo
-        send(client_sock, comandos_enviar, TAMANHO_VETOR_ENVIAR * sizeof(int), 0);
+        recv(client_sock, terreo, tamVetorReceber * sizeof(int), 0);
+        send (client_sock, enviar, tamVetorEnviar *sizeof(int) , 0);
+        enviar[0] = terreo[12];
         delay(1000);
     }
     close(client_sock);
     printf("Client Disconnected\n");
 }
 
-// Função para mostrar tickets temporários
-void mostrar_tickets_temporarios() {
-    system("clear");
-    printf("=== TICKETS TEMPORÁRIOS ===\n\n");
-    
-    ticket_temporario_t tickets[50];
-    int count = listar_tickets_ativos(tickets, 50);
-    
-    if (count == 0) {
-        printf("Nenhum ticket temporário ativo.\n");
-    } else {
-        printf("ID\tPlaca\t\tConfiança\tVaga\tAndar\tTimestamp\n");
-        printf("--------------------------------------------------------\n");
-        for (int i = 0; i < count; i++) {
-            printf("%d\t%s\t\t%d%%\t\t%d\t%d\t%s", 
-                   tickets[i].ticket_id,
-                   tickets[i].placa_temporaria,
-                   tickets[i].confianca,
-                   tickets[i].vaga_associada,
-                   tickets[i].andar,
-                   ctime(&tickets[i].timestamp));
-        }
-    }
-    
-    printf("\nPressione Enter para continuar...");
-    getchar();
-}
-
-// Função para mostrar alertas de auditoria
-void mostrar_alertas_auditoria() {
-    system("clear");
-    printf("=== ALERTAS DE AUDITORIA ===\n\n");
-    
-    alerta_auditoria_t alertas[50];
-    listar_alertas_pendentes(alertas, 50);
-    
-    int count = 0;
-    for (int i = 0; i < 50; i++) {
-        if (alertas[i].timestamp > 0) count++;
-    }
-    
-    if (count == 0) {
-        printf("Nenhum alerta de auditoria pendente.\n");
-    } else {
-        printf("Placa\t\tMotivo\t\t\t\tTipo\tTimestamp\n");
-        printf("--------------------------------------------------------\n");
-        for (int i = 0; i < count; i++) {
-            printf("%s\t\t%s\t\t%d\t%s", 
-                   alertas[i].placa_veiculo,
-                   alertas[i].motivo,
-                   alertas[i].tipo_alerta,
-                   ctime(&alertas[i].timestamp));
-        }
-    }
-    
-    printf("\nPressione Enter para continuar...");
-    getchar();
-}
-
-// Função para atualizar dados do servidor HTTP
-void update_http_data() {
-    extern estacionamento_data_t estacionamento_data;
-    update_estacionamento_data(&estacionamento_data, dados_terreo, dados_andar1, dados_andar2, comandos_enviar);
-}
-
 int mainC(){
-    // Inicializar sistema de logs
-    init_log_system();
-    log_info("Iniciando servidor central");
+    //mainC
     
-    // Inicializar servidor HTTP
-    if(init_http_server(8080) != 0) {
-        log_erro("Falha ao inicializar servidor HTTP");
-        return 1;
-    }
-    log_info("Servidor HTTP inicializado na porta 8080");
+    // Inicializa o sistema de rastreamento de carros
+    inicializarRastreamentoCarros();
     
-    pthread_t fRecebePrimeiroAndar, fRecebeSegundoAndar, fRecebeTerreo;
+    pthread_t fMenu,fRecebePrimeiroAndar, fRecebeSegundoAndar, fRecebeTerreo;
+    //pthread_t fPassaCarro;
+
     
-    log_info("Criando threads do servidor central");
     pthread_create(&fRecebePrimeiroAndar, NULL, recebePrimeiroAndar, NULL);
     pthread_create(&fRecebeSegundoAndar, NULL, recebeSegundoAndar, NULL);
     pthread_create(&fRecebeTerreo, NULL, recebeTerreo, NULL);
+    //pthread_create(&fPassaCarro, NULL, passaCarro, NULL);
     
-    log_info("Servidor central em execução");
-    
-    // Loop principal para atualizar dados HTTP
-    while(1) {
-        update_http_data();
-        usleep(100000); // 100ms
-    }
+    menu(fRecebeTerreo, fRecebePrimeiroAndar, fRecebeSegundoAndar);
     
     pthread_join(fRecebePrimeiroAndar, NULL);
     pthread_join(fRecebeSegundoAndar, NULL);
     pthread_join(fRecebeTerreo, NULL);
-    
-    stop_http_server();
-    close_log_system();
-    log_info("Servidor central finalizado");
+    //pthread_join(fPassaCarro, NULL);
+
     return 0;
-}
-
-// Implementação das funções de tickets e alertas
-void mostrar_tickets_temporarios() {
-    system("clear");
-    printf("╔══════════════════════════════════════════════════════════════════════════════╗\n");
-    printf("║                            TICKETS TEMPORÁRIOS ATIVOS                        ║\n");
-    printf("╚══════════════════════════════════════════════════════════════════════════════╝\n\n");
-    
-    ticket_temporario_t tickets[50];
-    int num_tickets = listar_tickets_ativos(tickets, 50);
-    
-    if (num_tickets == 0) {
-        printf("  ✅ Nenhum ticket temporário ativo no momento.\n\n");
-    } else {
-        printf("  📋 Total de tickets ativos: %d\n\n", num_tickets);
-        printf("  ┌─────────┬─────────────┬────────────┬─────────────────────┬───────┐\n");
-        printf("  │   ID    │    Placa    │ Confiança  │      Timestamp      │ Andar │\n");
-        printf("  ├─────────┼─────────────┼────────────┼─────────────────────┼───────┤\n");
-        
-        for (int i = 0; i < num_tickets; i++) {
-            char timestamp_str[32];
-            struct tm *tm_info = localtime(&tickets[i].timestamp);
-            strftime(timestamp_str, sizeof(timestamp_str), "%Y-%m-%d %H:%M:%S", tm_info);
-            
-            printf("  │ %7d │ %-11s │    %3d%%    │ %-19s │   %d   │\n",
-                   tickets[i].ticket_id,
-                   tickets[i].placa_temporaria,
-                   tickets[i].confianca,
-                   timestamp_str,
-                   tickets[i].andar);
-        }
-        printf("  └─────────┴─────────────┴────────────┴─────────────────────┴───────┘\n\n");
-    }
-    
-    printf("  Pressione qualquer tecla para voltar ao menu principal...");
-    getchar(); getchar(); // Limpar buffer e aguardar
-}
-
-void mostrar_alertas_auditoria() {
-    system("clear");
-    printf("╔══════════════════════════════════════════════════════════════════════════════╗\n");
-    printf("║                           ALERTAS DE AUDITORIA                               ║\n");
-    printf("╚══════════════════════════════════════════════════════════════════════════════╝\n\n");
-    
-    alerta_auditoria_t alertas[50];
-    listar_alertas_pendentes(alertas, 50);
-    
-    int alertas_pendentes = 0;
-    for (int i = 0; i < 50; i++) {
-        if (alertas[i].timestamp > 0 && !alertas[i].resolvido) {
-            alertas_pendentes++;
-        }
-    }
-    
-    if (alertas_pendentes == 0) {
-        printf("  ✅ Nenhum alerta de auditoria pendente.\n\n");
-    } else {
-        printf("  ⚠️  Total de alertas pendentes: %d\n\n", alertas_pendentes);
-        printf("  ┌─────────────────────┬─────────────┬─────────────────────────────────────────────┐\n");
-        printf("  │      Timestamp      │    Placa    │                   Motivo                    │\n");
-        printf("  ├─────────────────────┼─────────────┼─────────────────────────────────────────────┤\n");
-        
-        for (int i = 0; i < 50; i++) {
-            if (alertas[i].timestamp > 0 && !alertas[i].resolvido) {
-                char timestamp_str[32];
-                struct tm *tm_info = localtime(&alertas[i].timestamp);
-                strftime(timestamp_str, sizeof(timestamp_str), "%Y-%m-%d %H:%M:%S", tm_info);
-                
-                const char* tipo_str = "GENÉRICO";
-                switch(alertas[i].tipo_alerta) {
-                    case 1: tipo_str = "SEM ENTRADA"; break;
-                    case 2: tipo_str = "PLACA INVÁLIDA"; break;
-                    case 3: tipo_str = "ERRO SISTEMA"; break;
-                }
-                
-                printf("  │ %-19s │ %-11s │ [%s] %-33s │\n",
-                       timestamp_str,
-                       alertas[i].placa_veiculo,
-                       tipo_str,
-                       alertas[i].motivo);
-            }
-        }
-        printf("  └─────────────────────┴─────────────┴─────────────────────────────────────────────┘\n\n");
-    }
-    
-    printf("  Pressione qualquer tecla para voltar ao menu principal...");
-    getchar(); getchar(); // Limpar buffer e aguardar
-}
-
-void calcular_e_processar_cobranca(const char* placa, time_t timestamp_entrada) {
-    time_t timestamp_saida = time(NULL);
-    int tempo_minutos = (int)((timestamp_saida - timestamp_entrada) / 60);
-    if ((timestamp_saida - timestamp_entrada) % 60 > 0) {
-        tempo_minutos++; // Arredondar para cima
-    }
-    
-    float valor = calcular_valor_pagamento(tempo_minutos);
-    
-    // Registrar evento de cobrança
-    evento_sistema_t evento;
-    evento.timestamp = timestamp_saida;
-    evento.tipo_evento = 2; // Saída
-    evento.andar_origem = 0; // Central
-    evento.andar_destino = 0;
-    evento.numero_carro = 0;
-    evento.numero_vaga = 0;
-    strncpy(evento.placa_veiculo, placa, sizeof(evento.placa_veiculo) - 1);
-    evento.valor_pago = valor;
-    evento.confianca_leitura = 100;
-    
-    salvar_evento_arquivo(&evento);
-    imprimir_recibo_saida(placa, tempo_minutos, valor);
-}
-
-void imprimir_recibo_saida(const char* placa, int tempo_minutos, float valor) {
-    printf("\n╔══════════════════════════════════════════════════════════════════════════════╗\n");
-    printf("║                               RECIBO DE SAÍDA                                ║\n");
-    printf("╚══════════════════════════════════════════════════════════════════════════════╝\n");
-    printf("  Placa do Veículo: %s\n", placa);
-    printf("  Tempo de Permanência: %d minutos\n", tempo_minutos);
-    printf("  Valor por Minuto: R$ %.2f\n", PRECO_POR_MINUTO);
-    printf("  VALOR TOTAL: R$ %.2f\n", valor);
-    
-    time_t now = time(NULL);
-    char timestamp_str[32];
-    struct tm *tm_info = localtime(&now);
-    strftime(timestamp_str, sizeof(timestamp_str), "%Y-%m-%d %H:%M:%S", tm_info);
-    printf("  Data/Hora da Saída: %s\n", timestamp_str);
-    printf("════════════════════════════════════════════════════════════════════════════════\n\n");
 }
