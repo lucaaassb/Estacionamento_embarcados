@@ -13,7 +13,7 @@ extern int lpr_saida_fd;
 
 /**
  * @brief Inicializa câmeras LPR
- * @param porta_serial Porta serial MODBUS (ex: "/dev/ttyUSB0")
+ * @param porta_serial Porta serial MODBUS (ex: "/dev/serial0")
  * @return true se sucesso, false se erro
  */
 bool lpr_init(const char *porta_serial);

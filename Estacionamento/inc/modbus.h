@@ -15,7 +15,7 @@
 
 // Configurações de comunicação serial
 #define MODBUS_SERIAL_BAUD      115200
-#define MODBUS_SERIAL_PORT      "/dev/ttyUSB0"  // Ajustar conforme necessário
+#define MODBUS_SERIAL_PORT      "/dev/serial0 "  // Ajustar conforme necessário
 #define MODBUS_TIMEOUT_MS       500
 #define MODBUS_RETRIES          3
 
@@ -67,7 +67,7 @@ typedef struct {
 
 /**
  * @brief Inicializa a comunicação MODBUS serial
- * @param porta Caminho da porta serial (ex: "/dev/ttyUSB0")
+ * @param porta Caminho da porta serial (ex: "/dev/serial0")
  * @return file descriptor da porta serial, ou -1 em caso de erro
  */
 int modbus_init(const char *porta);

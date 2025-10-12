@@ -1187,6 +1187,16 @@ void *recebeTerreo(){
             flags |= (1 << 2);  // Acende luz vermelha do 2º ANDAR
         }
         
+        // DEBUG: Log de flags quando há mudança
+        static int flags_anterior = -1;
+        if(flags != flags_anterior) {
+            printf("[PLACAR-MODBUS] Flags atualizadas: 0x%02X (bit0=%d entrada, bit1=%d 1ºAndar, bit2=%d 2ºAndar)\n", 
+                   flags, (flags & 0x01) ? 1 : 0, (flags & 0x02) ? 1 : 0, (flags & 0x04) ? 1 : 0);
+            printf("[PLACAR-MODBUS] Estado: enviar[1]=%d (fechado geral), enviar[2]=%d (1º bloqueado), enviar[3]=%d (2º bloqueado)\n",
+                   enviar[1], enviar[2], enviar[3]);
+            flags_anterior = flags;
+        }
+        
         dadosPlacar[12] = flags;  // Flags para o placar MODBUS
         dadosPlacar[13] = 1;      // Comando: atualizar placar
         

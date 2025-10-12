@@ -296,7 +296,14 @@ void leituraVagasAndar1(vaga *b){
             pagamento1(k1, b);
             
         }else if(k1<0 && k1>-9){
-            buscaCarro1(k1, b);
+            // ✅ BLOQUEIO: Só permite estacionar se o andar NÃO está fechado
+            if(fechado1 == 0){
+                buscaCarro1(k1, b);
+            } else {
+                printf("[1º Andar] 🚫 Vaga %d IGNORADA - Andar está bloqueado\n", k1 * -1);
+                // Reseta a vaga para evitar registro fantasma
+                b[(k1 * -1) - 1].ocupado = 0;
+            }
         } 
         anteriorSomaValores1 = s.somaValores;
         
@@ -363,14 +370,21 @@ void *sensorPassagemA(){
         
         // Detecta a direção completa
         if(primeiro_sensor == 1 && sensor2_ativo == 1){
-            // Sensor 1 → Sensor 2: Carro SUBINDO (Térreo → 1º Andar)
-            printf("[1º Andar] ↑ SUBINDO: Térreo → 1º Andar\n");
-            parametros1[21] = 1;  // 1 = subindo
-            parametros1[22] = 1;  // Flag de evento
-            
-            delay(1000);  // Aguarda passagem completa
-            parametros1[22] = 0;  // Reseta flag
-            primeiro_sensor = 0;
+            // ✅ BLOQUEIO: Verifica se o 1º andar está fechado ANTES de permitir subida
+            if(fechado1 == 1){
+                printf("[1º Andar] 🚫 BLOQUEADO - Impedindo subida (andar fechado)\n");
+                primeiro_sensor = 0;  // Reseta para evitar loop
+                delay(1000);  // Aguarda carro retornar
+            } else {
+                // Sensor 1 → Sensor 2: Carro SUBINDO (Térreo → 1º Andar)
+                printf("[1º Andar] ↑ SUBINDO: Térreo → 1º Andar\n");
+                parametros1[21] = 1;  // 1 = subindo
+                parametros1[22] = 1;  // Flag de evento
+                
+                delay(1000);  // Aguarda passagem completa
+                parametros1[22] = 0;  // Reseta flag
+                primeiro_sensor = 0;
+            }
         }
         else if(primeiro_sensor == 2 && sensor1_ativo == 1){
             // Sensor 2 → Sensor 1: Carro DESCENDO (1º Andar → Térreo)

@@ -306,8 +306,15 @@ void leituraVagasAndar2(vaga *b){
         if(k2>0 && k2<9){
             pagamento2(k2, b);
             
-        }else if(k2<0 && k2>-9){       
-            buscaCarro2(k2, b);
+        }else if(k2<0 && k2>-9){
+            // ✅ BLOQUEIO: Só permite estacionar se o andar NÃO está fechado
+            if(fechado2 == 0){
+                buscaCarro2(k2, b);
+            } else {
+                printf("[2º Andar] 🚫 Vaga %d IGNORADA - Andar está bloqueado\n", k2 * -1);
+                // Reseta a vaga para evitar registro fantasma
+                b[(k2 * -1) - 1].ocupado = 0;
+            }
         } 
         anteriorSomaValores2 = t.somaValores;
         
@@ -373,14 +380,21 @@ void *sensorPassagemB(){
         
         // Detecta a direção completa
         if(primeiro_sensor == 1 && sensor2_ativo == 1){
-            // Sensor 1 → Sensor 2: Carro SUBINDO (1º Andar → 2º Andar)
-            printf("[2º Andar] ↑ SUBINDO: 1º Andar → 2º Andar\n");
-            parametros2[21] = 1;  // 1 = subindo
-            parametros2[22] = 1;  // Flag de evento
-            
-            delay(1000);  // Aguarda passagem completa
-            parametros2[22] = 0;  // Reseta flag
-            primeiro_sensor = 0;
+            // ✅ BLOQUEIO: Verifica se o 2º andar está fechado ANTES de permitir subida
+            if(fechado2 == 1){
+                printf("[2º Andar] 🚫 BLOQUEADO - Impedindo subida (andar fechado)\n");
+                primeiro_sensor = 0;  // Reseta para evitar loop
+                delay(1000);  // Aguarda carro retornar
+            } else {
+                // Sensor 1 → Sensor 2: Carro SUBINDO (1º Andar → 2º Andar)
+                printf("[2º Andar] ↑ SUBINDO: 1º Andar → 2º Andar\n");
+                parametros2[21] = 1;  // 1 = subindo
+                parametros2[22] = 1;  // Flag de evento
+                
+                delay(1000);  // Aguarda passagem completa
+                parametros2[22] = 0;  // Reseta flag
+                primeiro_sensor = 0;
+            }
         }
         else if(primeiro_sensor == 2 && sensor1_ativo == 1){
             // Sensor 2 → Sensor 1: Carro DESCENDO (2º Andar → 1º Andar)
