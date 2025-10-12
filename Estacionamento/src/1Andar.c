@@ -164,11 +164,16 @@ int timediff1(struct timeval entrada, struct timeval saida){
 void pagamento1(int g, vaga *a){
     
     gettimeofday(&a[g-1].hsaida,0);
-    a[g-1].tempo = timediff1(a[g-1].hent,a[g-1].hsaida)/60;
-    float f = (a[g-1].tempo*0.15);
+    // Calcula tempo em segundos e arredonda para cima em minutos
+    int segundos = timediff1(a[g-1].hent,a[g-1].hsaida);
+    int minutos = (segundos + 59) / 60; // Arredonda para cima: qualquer fração = 1 minuto
+    if(minutos < 1) minutos = 1; // Mínimo de 1 minuto (R$ 0,15)
+    
+    a[g-1].tempo = minutos;
+    float f = (minutos * 0.15);
     parametros1[14]=1;
     parametros1[15]=a[g-1].ncarro;
-    parametros1[16]=a[g-1].tempo;
+    parametros1[16]=minutos;
     parametros1[17]=g;
     delay(1000);
     parametros1[14]=0;
@@ -319,6 +324,80 @@ void *chamaLeitura1(){
     leituraVagasAndar1(a);
 }
 
+/**
+ * @brief Thread que detecta passagem de carros entre andares no 1º Andar
+ * 
+ * Lógica de detecção:
+ * - SENSOR_1 ativado primeiro, depois SENSOR_2: Carro SUBINDO (Térreo → 1º Andar)
+ * - SENSOR_2 ativado primeiro, depois SENSOR_1: Carro DESCENDO (1º Andar → Térreo)
+ * 
+ * Registra no array parametros1[21] e parametros1[22]:
+ * - parametros1[21] = direção (1 = subindo, 2 = descendo)
+ * - parametros1[22] = flag de evento (1 = passagem detectada, 0 = sem evento)
+ */
+void *sensorPassagemA(){
+    printf("[1º Andar] Thread de detecção de passagem iniciada\n");
+    
+    int sensor1_anterior = 0;
+    int sensor2_anterior = 0;
+    int sensor1_ativo = 0;
+    int sensor2_ativo = 0;
+    int primeiro_sensor = 0;  // 1 = sensor1 ativou primeiro, 2 = sensor2 ativou primeiro
+    
+    while(1){
+        // Lê os sensores
+        sensor1_ativo = bcm2835_gpio_lev(SENSOR_DE_PASSAGEM_1);
+        sensor2_ativo = bcm2835_gpio_lev(SENSOR_DE_PASSAGEM_2);
+        
+        // Detecta qual sensor ativou primeiro (borda de subida)
+        if(sensor1_ativo == 1 && sensor1_anterior == 0 && primeiro_sensor == 0){
+            // Sensor 1 ativou primeiro
+            primeiro_sensor = 1;
+            printf("[1º Andar] Sensor 1 detectou presença\n");
+        }
+        else if(sensor2_ativo == 1 && sensor2_anterior == 0 && primeiro_sensor == 0){
+            // Sensor 2 ativou primeiro
+            primeiro_sensor = 2;
+            printf("[1º Andar] Sensor 2 detectou presença\n");
+        }
+        
+        // Detecta a direção completa
+        if(primeiro_sensor == 1 && sensor2_ativo == 1){
+            // Sensor 1 → Sensor 2: Carro SUBINDO (Térreo → 1º Andar)
+            printf("[1º Andar] ↑ SUBINDO: Térreo → 1º Andar\n");
+            parametros1[21] = 1;  // 1 = subindo
+            parametros1[22] = 1;  // Flag de evento
+            
+            delay(1000);  // Aguarda passagem completa
+            parametros1[22] = 0;  // Reseta flag
+            primeiro_sensor = 0;
+        }
+        else if(primeiro_sensor == 2 && sensor1_ativo == 1){
+            // Sensor 2 → Sensor 1: Carro DESCENDO (1º Andar → Térreo)
+            printf("[1º Andar] ↓ DESCENDO: 1º Andar → Térreo\n");
+            parametros1[21] = 2;  // 2 = descendo
+            parametros1[22] = 1;  // Flag de evento
+            
+            delay(1000);  // Aguarda passagem completa
+            parametros1[22] = 0;  // Reseta flag
+            primeiro_sensor = 0;
+        }
+        
+        // Reseta se ambos os sensores desativarem
+        if(sensor1_ativo == 0 && sensor2_ativo == 0){
+            primeiro_sensor = 0;
+        }
+        
+        // Atualiza estados anteriores
+        sensor1_anterior = sensor1_ativo;
+        sensor2_anterior = sensor2_ativo;
+        
+        delay(50);  // Polling rápido para não perder eventos
+    }
+    
+    return NULL;
+}
+
 void *enviaParametros1(){
     char *ip ="127.0.0.1";
     int port = 10681;
@@ -370,10 +449,10 @@ int mainU(){
     
     pthread_create(&fLeituraVagas1, NULL, chamaLeitura1, NULL);
     pthread_create(&fEnviaParametros1, NULL, enviaParametros1, NULL);
-    //pthread_create(&fSensorPassagemA, NULL, sensorPassagemA, NULL);
+    pthread_create(&fSensorPassagemA, NULL, sensorPassagemA, NULL);  // ✅ Ativado
     pthread_join(fLeituraVagas1, NULL);
     pthread_join(fEnviaParametros1, NULL);
-    //pthread_join(fSensorPassagemA, NULL);
+    pthread_join(fSensorPassagemA, NULL);  // ✅ Ativado
     bcm2835_close();
     return 0;
 }

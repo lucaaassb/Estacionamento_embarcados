@@ -10,6 +10,8 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include "../inc/lpr_terreo.h"
+#include "../inc/modbus.h"
 
 
 //ANDAR TÉRREO
@@ -79,10 +81,16 @@ bool carroPassouEntrada = false;    // Flag para detectar se o carro já passou
 
 #define tamVetorEnviar 22
 #define tamVetorReceber 5
+#define tamDadosPlacar 14  // Novo: array para receber dados do placar do Central
 
 int parametros[tamVetorEnviar];
 int recebe[tamVetorReceber];
+int dadosPlacar[tamDadosPlacar];  // Novo: dados do placar recebidos do Central
 int fechado = 0;
+
+// ✅ MODBUS centralizado no Térreo conforme especificação
+int modbus_fd_terreo = -1;
+pthread_mutex_t mutex_modbus_terreo = PTHREAD_MUTEX_INITIALIZER;
 
 // Função para inicializar todas as vagas como vazias
 void inicializarVagasTerreo(vaga *v){
@@ -136,11 +144,22 @@ void * sensorEntrada(){
         // Controle manual via ThingsBoard - Permite apenas 1 carro por comando
         if(entradaManual && !entradaManualEmAndamento){
             printf("ENTRADA MANUAL ATIVADA - Abrindo cancela de entrada\n");
+            
+            // === INTEGRAÇÃO LPR: Dispara captura de placa ===
+            char placa[9];
+            int confianca = 0;
+            bool placaLida = lpr_processar_entrada(carroTotal + 1, placa, &confianca);
+            
             bcm2835_gpio_write(MOTOR_CANCELA_ENTRADA, HIGH);
             parametros[19]=1;
             entradaManualEmAndamento = true; // Marca que uma operação manual está em andamento
             carroPassouEntrada = false;
-            printf("Aguardando carro passar...\n");
+            
+            if(placaLida) {
+                printf("Aguardando carro com placa %s (conf: %d%%) passar...\n", placa, confianca);
+            } else {
+                printf("Aguardando carro passar (placa não identificada)...\n");
+            }
             delay(1000); // Delay para estabilizar a abertura
         }
         
@@ -182,8 +201,20 @@ void * sensorEntrada(){
         if(!entradaManual && !entradaManualEmAndamento){
             //Lê o sensor de abertura da cancela de entrada e aciona o motor da cancela para abrir
             if(HIGH == bcm2835_gpio_lev(SENSOR_ABERTURA_CANCELA_ENTRADA)){
+                // === INTEGRAÇÃO LPR: Dispara captura de placa ao detectar carro ===
+                char placa[9];
+                int confianca = 0;
+                bool placaLida = lpr_processar_entrada(carroTotal + 1, placa, &confianca);
+                
                 bcm2835_gpio_write(MOTOR_CANCELA_ENTRADA, HIGH);
                 parametros[19]=1;
+                
+                if(placaLida) {
+                    printf("[Entrada-Auto] Placa %s detectada (conf: %d%%)\n", placa, confianca);
+                } else {
+                    printf("[Entrada-Auto] Placa não identificada - ticket temporário será criado\n");
+                }
+                
                 delay(100); // Delay para evitar detecções múltiplas
             }
             //Lê o sensor de fechamento da cancela e aciona o motor da cancela para fechar
@@ -214,7 +245,19 @@ void * sensorSaida(){
         
         // Controle manual via ThingsBoard
         if(saidaManual){
-            printf("SAÍDA MANUAL ATIVADA - Abrindo cancela de saída\n");
+            printf("SAÍDA MANUAL ATIVADA - Processando saída com LPR\n");
+            
+            // === INTEGRAÇÃO LPR: Lê placa na saída ===
+            char placa[9];
+            int confianca = 0;
+            bool placaLida = lpr_processar_saida(placa, &confianca);
+            
+            if(placaLida) {
+                printf("[Saída-Manual] Placa %s identificada (conf: %d%%)\n", placa, confianca);
+            } else {
+                printf("[Saída-Manual] Placa não identificada\n");
+            }
+            
             bcm2835_gpio_write(MOTOR_CANCELA_SAIDA, HIGH);
             delay(2000); // Simula tempo de abertura da cancela
             
@@ -229,6 +272,17 @@ void * sensorSaida(){
         else {
             //Lê o sensor de abertura da cancela de saida e aciona o motor da cancela para abrir
             if(HIGH == bcm2835_gpio_lev(SENSOR_ABERTURA_CANCELA_SAIDA)){
+                // === INTEGRAÇÃO LPR: Lê placa na saída (automático) ===
+                char placa[9];
+                int confianca = 0;
+                bool placaLida = lpr_processar_saida(placa, &confianca);
+                
+                if(placaLida) {
+                    printf("[Saída-Auto] Placa %s identificada (conf: %d%%)\n", placa, confianca);
+                } else {
+                    printf("[Saída-Auto] Placa não identificada\n");
+                }
+                
                 bcm2835_gpio_write(MOTOR_CANCELA_SAIDA, HIGH);
                 delay(100); // Delay para evitar detecções múltiplas
             }
@@ -316,11 +370,16 @@ int timediff(struct timeval entrada, struct timeval saida){
 //Função que calcula o valor a ser pago pelo carro que estava na vaga
 void pagamento(int g, vaga *v){
     gettimeofday(&v[g-1].hsaida,0);
-    v[g-1].tempo = timediff(v[g-1].hent,v[g-1].hsaida)/60;
-    float x = v[g-1].tempo*0.15;
+    // Calcula tempo em segundos e arredonda para cima em minutos (conforme regra de negócio)
+    int segundos = timediff(v[g-1].hent,v[g-1].hsaida);
+    int minutos = (segundos + 59) / 60; // Arredonda para cima: qualquer fração = 1 minuto
+    if(minutos < 1) minutos = 1; // Mínimo de 1 minuto (R$ 0,15)
+    
+    v[g-1].tempo = minutos;
+    float x = minutos * 0.15;
     parametros[14]=1;
     parametros[15]=v[g-1].ncarro;
-    parametros[16]=v[g-1].tempo;
+    parametros[16]=minutos;
     parametros[17]=g;
     delay(1000);
     parametros[14]=0;
@@ -430,6 +489,75 @@ void *chamaLeitura(){
     leituraVagasTerreo(v);
 }
 
+/**
+ * @brief Thread que gerencia o placar MODBUS (0x20)
+ * ✅ ARQUITETURA CORRETA conforme especificação:
+ * - Inicializa MODBUS no Térreo (centraliza interface)
+ * - Recebe comandos do Central via TCP/IP (dadosPlacar[])
+ * - Escreve no placar MODBUS 0x20
+ */
+void *atualizaPlacarModbus() {
+    // Aguarda 3 segundos para estabilizar comunicação TCP/IP com Central
+    delay(3000);
+    
+    printf("[MODBUS-Placar-Térreo] Thread iniciada\n");
+    printf("[MODBUS-Placar-Térreo] ✅ Centralizando interface MODBUS no Térreo (conforme spec)\n");
+    
+    // ✅ Inicializa MODBUS no Térreo (conforme orientação da especificação)
+    pthread_mutex_lock(&mutex_modbus_terreo);
+    modbus_fd_terreo = modbus_init(MODBUS_SERIAL_PORT);
+    pthread_mutex_unlock(&mutex_modbus_terreo);
+    
+    if(modbus_fd_terreo < 0) {
+        fprintf(stderr, "[MODBUS-Placar-Térreo] AVISO: Falha ao inicializar porta serial\n");
+        fprintf(stderr, "[MODBUS-Placar-Térreo] Sistema funcionará sem atualização do placar externo\n");
+        // Continua mesmo sem MODBUS (modo degradado)
+    } else {
+        printf("[MODBUS-Placar-Térreo] ✅ Comunicação MODBUS inicializada com sucesso\n");
+        printf("[MODBUS-Placar-Térreo] ✅ Aguardando comandos do Servidor Central...\n");
+    }
+    
+    while(1) {
+        // Verifica se há comando para atualizar (dadosPlacar[13] = 1)
+        if(dadosPlacar[13] == 1 && modbus_fd_terreo >= 0) {
+            PlacarData placar;
+            
+            // ✅ Recebe dados do Central via TCP/IP (preenchidos em enviaParametros())
+            placar.vagas_livres_terreo_pne = dadosPlacar[0];
+            placar.vagas_livres_terreo_idoso = dadosPlacar[1];
+            placar.vagas_livres_terreo_comuns = dadosPlacar[2];
+            placar.vagas_livres_a1_pne = dadosPlacar[3];
+            placar.vagas_livres_a1_idoso = dadosPlacar[4];
+            placar.vagas_livres_a1_comuns = dadosPlacar[5];
+            placar.vagas_livres_a2_pne = dadosPlacar[6];
+            placar.vagas_livres_a2_idoso = dadosPlacar[7];
+            placar.vagas_livres_a2_comuns = dadosPlacar[8];
+            placar.num_carros_terreo = dadosPlacar[9];
+            placar.num_carros_a1 = dadosPlacar[10];
+            placar.num_carros_a2 = dadosPlacar[11];
+            placar.flags = dadosPlacar[12];
+            
+            // ✅ Escreve no placar MODBUS 0x20 (conforme especificação)
+            pthread_mutex_lock(&mutex_modbus_terreo);
+            bool success = placar_update(modbus_fd_terreo, &placar);
+            pthread_mutex_unlock(&mutex_modbus_terreo);
+            
+            if(!success) {
+                static int erro_count = 0;
+                erro_count++;
+                if(erro_count % 10 == 1) {
+                    fprintf(stderr, "[MODBUS-Placar-Térreo] Erro ao atualizar (total: %d erros)\n", erro_count);
+                }
+            }
+        }
+        
+        // Atualiza a cada 1 segundo (conforme especificação)
+        delay(1000);
+    }
+    
+    return NULL;
+}
+
 void *enviaParametros(){
     char *ip ="127.0.0.1";
     int port = 10683;
@@ -452,8 +580,15 @@ void *enviaParametros(){
     connect(sock, (struct sockaddr*)&addr, sizeof(addr));
     printf("Connected to Server\n");
     while(1){
-        send (sock, parametros, tamVetorEnviar *sizeof(int) , 0);
+        // Envia dados dos sensores ao Central
+        send(sock, parametros, tamVetorEnviar * sizeof(int), 0);
+        
+        // Recebe comandos do Central
         recv(sock, recebe, tamVetorReceber * sizeof(int), 0);
+        
+        // ✅ NOVO: Recebe dados do placar MODBUS do Central
+        // Conforme especificação: "Placar: sob comando do Servidor Central, escrever..."
+        recv(sock, dadosPlacar, tamDadosPlacar * sizeof(int), 0);
         delay(1000);
     }
     close(sock);
@@ -476,19 +611,49 @@ int mainT(){
     // Aguarda 2 segundos para estabilizar os sensores
     printf("Aguardando estabilização dos sensores...\n");
     delay(2000);
+    
+    // === INICIALIZA SISTEMA LPR (MODBUS) ===
+    printf("\n╔═══════════════════════════════════════════════════════╗\n");
+    printf("║   INICIALIZANDO SISTEMA LPR (License Plate Reader)   ║\n");
+    printf("╚═══════════════════════════════════════════════════════╝\n\n");
+    
+    // Tenta inicializar LPR - se falhar, continua em modo degradado
+    if(!lpr_init(MODBUS_SERIAL_PORT)) {
+        printf("\n⚠️  AVISO: Sistema funcionará em MODO DEGRADADO\n");
+        printf("    Todos os carros receberão tickets temporários (TEMP####)\n");
+        printf("    Reconciliação manual será necessária via Central\n\n");
+    } else {
+        printf("\n✅ Sistema LPR operacional - Identificação automática de placas ativa\n\n");
+    }
+    
+    delay(1000);
 
-    pthread_t fEntrada, fSaida, fLeituraVagas, fEnviaParametros;
+    pthread_t fEntrada, fSaida, fLeituraVagas, fEnviaParametros, fPlacarModbus;
 
     pthread_create(&fLeituraVagas, NULL, chamaLeitura, NULL);
     pthread_create(&fEnviaParametros, NULL, enviaParametros, NULL);
     pthread_create(&fEntrada,NULL,sensorEntrada,NULL);
     pthread_create(&fSaida,NULL,sensorSaida,NULL);
+    // ✅ NOVO: Thread do placar MODBUS (centralizada no Térreo conforme especificação)
+    pthread_create(&fPlacarModbus, NULL, atualizaPlacarModbus, NULL);
 
     pthread_join(fEntrada,NULL);
     pthread_join(fSaida,NULL);
     pthread_join(fLeituraVagas, NULL);
     pthread_join(fEnviaParametros, NULL);
+    pthread_join(fPlacarModbus, NULL);  // ✅ Join da thread do placar
 
+    // Cleanup LPR
+    lpr_cleanup();
+    
+    // ✅ Cleanup MODBUS (centralizado no Térreo)
+    if(modbus_fd_terreo >= 0) {
+        pthread_mutex_lock(&mutex_modbus_terreo);
+        modbus_close(modbus_fd_terreo);
+        pthread_mutex_unlock(&mutex_modbus_terreo);
+        printf("[MODBUS-Placar-Térreo] Porta serial fechada\n");
+    }
+    
     bcm2835_close();
     return 0;
 }

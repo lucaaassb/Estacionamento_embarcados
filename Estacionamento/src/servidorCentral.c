@@ -10,6 +10,7 @@
 #include <termios.h>
 #include <fcntl.h>
 #include <ctype.h>
+#include "../inc/modbus.h"
 
 #define tamVetorReceber 23
 #define tamVetorEnviar 5
@@ -24,16 +25,23 @@ int manual =  0;
 
 // Estrutura para rastrear cada carro no estacionamento
 typedef struct {
-    int numero;           // Número do carro
+    int numero;           // Número do carro (ID sequencial ou ticket temporário)
+    char placa[9];        // Placa do veículo (8 chars + \0) ou "TEMP####" para temporários
+    int confianca;        // Confiança da leitura (0-100%), -1 se não aplicável
     int andar;            // 0=Térreo, 1=1ºAndar, 2=2ºAndar, -1=Vazio
     int vaga;             // Número da vaga (1-4 térreo, 1-8 andares)
     time_t timestamp;     // Hora de entrada
     bool ativo;           // true=estacionado, false=slot vazio
+    bool ticket_temporario; // true se é ticket temporário (placa não lida)
+    bool reconciliado;    // true se ticket foi reconciliado manualmente
 } CarroEstacionado;
 
 // Array global para rastrear todos os carros
 CarroEstacionado carros[MAX_CARROS];
 pthread_mutex_t mutex_carros = PTHREAD_MUTEX_INITIALIZER;
+
+// ⚠️ MODBUS removido do Central - agora centralizado no Térreo conforme especificação
+// O Central envia dados do placar via TCP/IP para o Térreo, que escreve no MODBUS
 
 /**
  * @brief Verifica se há uma tecla pressionada no terminal (non-blocking)
@@ -102,14 +110,18 @@ void inicializarRastreamentoCarros() {
     pthread_mutex_lock(&mutex_carros);
     for(int i = 0; i < MAX_CARROS; i++) {
         carros[i].numero = 0;
+        strcpy(carros[i].placa, "");
+        carros[i].confianca = -1;
         carros[i].andar = -1;
         carros[i].vaga = 0;
         carros[i].timestamp = 0;
         carros[i].ativo = false;
+        carros[i].ticket_temporario = false;
+        carros[i].reconciliado = false;
     }
     pthread_mutex_unlock(&mutex_carros);
     printf("[Sistema] Rastreamento de carros inicializado\n");
-    registrarEvento("🚀 SISTEMA INICIADO - Rastreamento ativo");
+    registrarEvento("🚀 SISTEMA INICIADO - Rastreamento ativo com suporte LPR");
 }
 
 /**
@@ -135,10 +147,14 @@ bool adicionarCarro(int numeroCarro, int andar, int vaga) {
     for(int i = 0; i < MAX_CARROS; i++) {
         if(!carros[i].ativo) {
             carros[i].numero = numeroCarro;
+            strcpy(carros[i].placa, "");  // Será preenchido pelo LPR se disponível
+            carros[i].confianca = -1;
             carros[i].andar = andar;
             carros[i].vaga = vaga;
             carros[i].timestamp = time(NULL);
             carros[i].ativo = true;
+            carros[i].ticket_temporario = false;
+            carros[i].reconciliado = false;
             pthread_mutex_unlock(&mutex_carros);
             
             char andarNome[15];
@@ -180,6 +196,85 @@ bool adicionarCarro(int numeroCarro, int andar, int vaga) {
         fclose(log);
     }
     
+    return false;
+}
+
+/**
+ * @brief Adiciona um carro com placa LPR ao sistema
+ * @param numeroCarro Número do carro
+ * @param placa Placa lida pela câmera LPR
+ * @param confianca Confiança da leitura (0-100%)
+ * @param andar Andar onde está
+ * @param vaga Número da vaga
+ * @return true se adicionado com sucesso
+ */
+bool adicionarCarroComPlaca(int numeroCarro, const char *placa, int confianca, int andar, int vaga) {
+    pthread_mutex_lock(&mutex_carros);
+    
+    // Limiar de confiança: 70% (conforme especificação)
+    bool baixa_confianca = (confianca < 70);
+    
+    // Busca um slot vazio
+    for(int i = 0; i < MAX_CARROS; i++) {
+        if(!carros[i].ativo) {
+            carros[i].numero = numeroCarro;
+            
+            if(baixa_confianca || strlen(placa) == 0) {
+                // Ticket temporário para placas não lidas ou baixa confiança
+                sprintf(carros[i].placa, "TEMP%04d", numeroCarro);
+                carros[i].ticket_temporario = true;
+                carros[i].reconciliado = false;
+            } else {
+                // Placa com confiança adequada
+                strncpy(carros[i].placa, placa, 8);
+                carros[i].placa[8] = '\0';
+                carros[i].ticket_temporario = false;
+                carros[i].reconciliado = true; // Já possui placa válida
+            }
+            
+            carros[i].confianca = confianca;
+            carros[i].andar = andar;
+            carros[i].vaga = vaga;
+            carros[i].timestamp = time(NULL);
+            carros[i].ativo = true;
+            pthread_mutex_unlock(&mutex_carros);
+            
+            char andarNome[15];
+            if(andar == 0) sprintf(andarNome, "Térreo");
+            else if(andar == 1) sprintf(andarNome, "1º Andar");
+            else sprintf(andarNome, "2º Andar");
+            
+            if(carros[i].ticket_temporario) {
+                printf("[Rastreamento] 🎫 Ticket temporário %s (ID %d) → %s vaga %d (confiança: %d%%)\n", 
+                       carros[i].placa, numeroCarro, andarNome, vaga, confianca);
+            } else {
+                printf("[Rastreamento] 🚗 Placa %s (ID %d) → %s vaga %d (confiança: %d%%)\n", 
+                       carros[i].placa, numeroCarro, andarNome, vaga, confianca);
+            }
+            
+            // Log para arquivo
+            FILE *log = fopen("estacionamento_log.txt", "a");
+            if(log) {
+                time_t t = time(NULL);
+                struct tm *tm_info = localtime(&t);
+                char buffer[64];
+                strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_info);
+                if(carros[i].ticket_temporario) {
+                    fprintf(log, "[%s] ENTRADA - Ticket %s → %s vaga %d (LPR conf=%d%% - BAIXA)\n", 
+                            buffer, carros[i].placa, andarNome, vaga, confianca);
+                } else {
+                    fprintf(log, "[%s] ENTRADA - Placa %s → %s vaga %d (LPR conf=%d%%)\n", 
+                            buffer, carros[i].placa, andarNome, vaga, confianca);
+                }
+                fclose(log);
+            }
+            
+            return true;
+        }
+    }
+    
+    pthread_mutex_unlock(&mutex_carros);
+    printf("[Rastreamento] ERRO: Capacidade máxima atingida!\n");
     return false;
 }
 
@@ -321,6 +416,142 @@ void visualizarLog() {
 }
 
 /**
+ * @brief Reconcilia um ticket temporário com uma placa real
+ * @param numeroCarro ID do carro/ticket
+ * @param placaReal Placa real informada manualmente
+ */
+bool reconciliarTicket(int numeroCarro, const char *placaReal) {
+    pthread_mutex_lock(&mutex_carros);
+    
+    for(int i = 0; i < MAX_CARROS; i++) {
+        if(carros[i].ativo && carros[i].numero == numeroCarro && carros[i].ticket_temporario) {
+            char ticketAntigo[9];
+            strcpy(ticketAntigo, carros[i].placa);
+            
+            strncpy(carros[i].placa, placaReal, 8);
+            carros[i].placa[8] = '\0';
+            carros[i].ticket_temporario = false;
+            carros[i].reconciliado = true;
+            carros[i].confianca = 100; // Manualmente verificado
+            
+            pthread_mutex_unlock(&mutex_carros);
+            
+            printf("[Reconciliação] ✅ Ticket %s → Placa %s\n", ticketAntigo, placaReal);
+            
+            // Log para arquivo
+            FILE *log = fopen("estacionamento_log.txt", "a");
+            if(log) {
+                time_t t = time(NULL);
+                struct tm *tm_info = localtime(&t);
+                char buffer[64];
+                strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_info);
+                fprintf(log, "[%s] RECONCILIAÇÃO - Ticket %s → Placa %s (ID %d)\n", 
+                        buffer, ticketAntigo, placaReal, numeroCarro);
+                fclose(log);
+            }
+            
+            return true;
+        }
+    }
+    
+    pthread_mutex_unlock(&mutex_carros);
+    printf("[Reconciliação] ❌ Ticket ID %d não encontrado ou já reconciliado\n", numeroCarro);
+    return false;
+}
+
+/**
+ * @brief Lista todos os tickets temporários pendentes de reconciliação
+ */
+void listarTicketsTemporarios() {
+    pthread_mutex_lock(&mutex_carros);
+    
+    system("clear");
+    printf("\n╔════════════════════════════════════════════════════════════════════════════╗\n");
+    printf("║              🎫 TICKETS TEMPORÁRIOS PENDENTES DE RECONCILIAÇÃO            ║\n");
+    printf("╚════════════════════════════════════════════════════════════════════════════╝\n\n");
+    
+    printf("┌────────┬──────────────┬──────────┬──────┬─────────────────┬──────────────┐\n");
+    printf("│   ID   │    Ticket    │  Andar   │ Vaga │ Tempo Estac.    │  Confiança   │\n");
+    printf("├────────┼──────────────┼──────────┼──────┼─────────────────┼──────────────┤\n");
+    
+    int totalTickets = 0;
+    time_t agora = time(NULL);
+    
+    for(int i = 0; i < MAX_CARROS; i++) {
+        if(carros[i].ativo && carros[i].ticket_temporario && !carros[i].reconciliado) {
+            char andarNome[15];
+            if(carros[i].andar == 0) sprintf(andarNome, "Térreo");
+            else if(carros[i].andar == 1) sprintf(andarNome, "1º Andar");
+            else sprintf(andarNome, "2º Andar");
+            
+            int segundos = (int)difftime(agora, carros[i].timestamp);
+            int minutosTotais = (segundos + 59) / 60;
+            int horas = minutosTotais / 60;
+            int minutos = minutosTotais % 60;
+            
+            printf("│  %4d  │  %-10s  │ %-8s │  %2d  │  %2dh %2dmin      │    %3d%%     │\n", 
+                   carros[i].numero, carros[i].placa, andarNome, carros[i].vaga, 
+                   horas, minutos, carros[i].confianca);
+            totalTickets++;
+        }
+    }
+    
+    if(totalTickets == 0) {
+        printf("│           ✅ Nenhum ticket temporário pendente de reconciliação          │\n");
+    }
+    
+    printf("└────────┴──────────────┴──────────┴──────┴─────────────────┴──────────────┘\n");
+    printf("\n");
+    printf("  📊 Estatísticas:\n");
+    printf("     • Total de tickets pendentes: %d\n", totalTickets);
+    printf("     • Limiar de confiança: 70%% (abaixo disso gera ticket temporário)\n");
+    printf("\n");
+    
+    pthread_mutex_unlock(&mutex_carros);
+    
+    // Interface de reconciliação
+    if(totalTickets > 0) {
+        printf("  ┌────────────────────────────────────────────────────────────────┐\n");
+        printf("  │  Deseja reconciliar algum ticket?                             │\n");
+        printf("  │  Digite o ID do ticket (ou 0 para voltar):                    │\n");
+        printf("  └────────────────────────────────────────────────────────────────┘\n");
+        printf("  ID: ");
+        
+        int idTicket;
+        scanf("%d", &idTicket);
+        limparBuffer();
+        
+        if(idTicket > 0) {
+            printf("\n  Digite a placa real (8 caracteres): ");
+            char placaReal[9];
+            fgets(placaReal, sizeof(placaReal), stdin);
+            placaReal[strcspn(placaReal, "\n")] = '\0'; // Remove newline
+            
+            // Converte para maiúsculas
+            for(int i = 0; placaReal[i]; i++) {
+                placaReal[i] = toupper(placaReal[i]);
+            }
+            
+            if(strlen(placaReal) >= 7 && strlen(placaReal) <= 8) {
+                if(reconciliarTicket(idTicket, placaReal)) {
+                    printf("\n  ✅ Reconciliação realizada com sucesso!\n");
+                } else {
+                    printf("\n  ❌ Erro na reconciliação. Verifique o ID do ticket.\n");
+                }
+            } else {
+                printf("\n  ❌ Placa inválida. Deve ter 7-8 caracteres.\n");
+            }
+            
+            printf("\n  Pressione ENTER para continuar...\n");
+            getchar();
+        }
+    } else {
+        printf("  Pressione ENTER para voltar ao menu...\n");
+        getchar();
+    }
+}
+
+/**
  * @brief Lista todos os carros estacionados com tempo e valor a pagar
  */
 void listarTodosCarros() {
@@ -331,11 +562,13 @@ void listarTodosCarros() {
     printf("║                  📋 CARROS ESTACIONADOS NO MOMENTO                        ║\n");
     printf("╚════════════════════════════════════════════════════════════════════════════╝\n\n");
     
-    printf("┌────────┬──────────┬──────┬─────────────────┬──────────────────┐\n");
-    printf("│ Carro  │  Andar   │ Vaga │ Tempo Estac.    │  Valor a Pagar   │\n");
-    printf("├────────┼──────────┼──────┼─────────────────┼──────────────────┤\n");
+    printf("┌─────┬──────────────┬───────────┬──────┬──────────────┬─────────────────┐\n");
+    printf("│ ID  │ Placa/Ticket │   Andar   │ Vaga │ Tempo Estac. │  Valor a Pagar  │\n");
+    printf("├─────┼──────────────┼───────────┼──────┼──────────────┼─────────────────┤\n");
     
     int totalCarros = 0;
+    int totalTickets = 0;
+    int totalComPlaca = 0;
     float totalArrecadado = 0.0;
     time_t agora = time(NULL);
     
@@ -357,25 +590,125 @@ void listarTodosCarros() {
             float valorAPagar = minutosTotais * 0.15;
             totalArrecadado += valorAPagar;
             
-            printf("│   %2d   │ %-8s │  %2d  │  %2dh %2dmin      │   R$ %7.2f    │\n", 
-                   carros[i].numero, andarNome, carros[i].vaga, horas, minutos, valorAPagar);
+            // Formata placa/ticket com indicador visual CLARO
+            char identificador[15];
+            if(carros[i].ticket_temporario) {
+                // Ticket temporário (placa não lida ou baixa confiança < 70%)
+                sprintf(identificador, "🎫 %s", carros[i].placa);
+                totalTickets++;
+            } else if(strlen(carros[i].placa) > 0 && strncmp(carros[i].placa, "TEMP", 4) != 0) {
+                // Placa IDENTIFICADA pelo LPR (confiança >= 70%)
+                sprintf(identificador, "🚗 %-8s", carros[i].placa);
+                totalComPlaca++;
+            } else {
+                // ID anônimo (não deveria acontecer, mas como fallback)
+                sprintf(identificador, "ID-%04d", carros[i].numero);
+            }
+            
+            printf("│%4d │ %-12s │ %-9s │  %2d  │ %2dh %2dmin     │   R$ %7.2f   │\n", 
+                   carros[i].numero, identificador, andarNome, carros[i].vaga, horas, minutos, valorAPagar);
             totalCarros++;
         }
     }
     
     if(totalCarros == 0) {
-        printf("│                    Nenhum carro estacionado                           │\n");
+        printf("│                       Nenhum carro estacionado                            │\n");
     }
     
-    printf("└────────┴──────────┴──────┴─────────────────┴──────────────────┘\n");
+    printf("└─────┴──────────────┴───────────┴──────┴──────────────┴─────────────────┘\n");
     printf("\n");
+    
+    // ✅ Calcula vagas totais considerando andares bloqueados
+    int vagasTotais = MAX_CARROS;  // Inicia com 20 vagas
+    int vagasBloqueadas = 0;
+    
+    // Se Térreo está fechado manualmente: remove 4 vagas do total
+    if(enviar[1] == 1) {
+        vagasBloqueadas += 4;
+    }
+    
+    // Se 1º Andar está fechado manualmente: remove 8 vagas do total
+    if(enviar[2] == 1) {
+        vagasBloqueadas += 8;
+    }
+    
+    // Se 2º Andar está fechado manualmente: remove 8 vagas do total
+    if(enviar[3] == 1) {
+        vagasBloqueadas += 8;
+    }
+    
+    vagasTotais -= vagasBloqueadas;  // Total de vagas disponíveis após bloqueios
+    int vagasLivres = vagasTotais - totalCarros;
+    
     printf("  📊 Estatísticas:\n");
-    printf("     • Total de carros: %d / %d\n", totalCarros, MAX_CARROS);
-    printf("     • Arrecadação prevista: R$ %.2f\n", totalArrecadado);
-    printf("     • Vagas livres: %d\n", MAX_CARROS - totalCarros);
+    printf("     • Total de carros: %d / %d", totalCarros, vagasTotais);
+    
+    // Mostra aviso se há andares bloqueados
+    if(vagasBloqueadas > 0) {
+        printf(" (%d vagas bloqueadas)", vagasBloqueadas);
+    }
     printf("\n");
-    printf("  💡 Nota: Valores arredondados para cima (mínimo R$ 0,15)\n");
-    printf("           Qualquer fração de minuto = 1 minuto completo\n");
+    
+    printf("     • Com placa LPR: %d carros\n", totalComPlaca);
+    printf("     • Tickets temporários: %d (necessitam reconciliação)\n", totalTickets);
+    printf("     • Arrecadação prevista: R$ %.2f\n", totalArrecadado);
+    printf("     • Vagas livres: %d", vagasLivres);
+    
+    // Detalhamento de vagas livres por andar
+    if(vagasBloqueadas > 0) {
+        printf(" (");
+        bool primeiro = true;
+        
+        if(enviar[1] == 0) {  // Térreo ativo
+            int vagasTerreo = terreo[0] + terreo[1] + terreo[2];
+            printf("Térreo: %d", vagasTerreo);
+            primeiro = false;
+        }
+        
+        if(enviar[2] == 0) {  // 1º Andar ativo
+            int vagas1Andar = andar1[0] + andar1[1] + andar1[2];
+            if(!primeiro) printf(", ");
+            printf("1º Andar: %d", vagas1Andar);
+            primeiro = false;
+        }
+        
+        if(enviar[3] == 0) {  // 2º Andar ativo
+            int vagas2Andar = andar2[0] + andar2[1] + andar2[2];
+            if(!primeiro) printf(", ");
+            printf("2º Andar: %d", vagas2Andar);
+        }
+        
+        printf(")");
+    }
+    printf("\n");
+    
+    // Mostra quais andares estão bloqueados
+    if(vagasBloqueadas > 0) {
+        printf("     • ⚠️  Andares bloqueados: ");
+        bool primeiro = true;
+        
+        if(enviar[1] == 1) {
+            printf("Térreo (4 vagas)");
+            primeiro = false;
+        }
+        if(enviar[2] == 1) {
+            if(!primeiro) printf(", ");
+            printf("1º Andar (8 vagas)");
+            primeiro = false;
+        }
+        if(enviar[3] == 1) {
+            if(!primeiro) printf(", ");
+            printf("2º Andar (8 vagas)");
+        }
+        printf("\n");
+    }
+    
+    printf("\n");
+    printf("  💡 Notas:\n");
+    printf("     • Valores arredondados para cima (mínimo R$ 0,15)\n");
+    printf("     • Qualquer fração de minuto = 1 minuto completo\n");
+    printf("     • 🎫 = Ticket temporário (placa não lida ou confiança < 70%%)\n");
+    printf("     • 🚗 = Placa identificada por LPR (confiança ≥ 70%%)\n");
     printf("\n");
     
     pthread_mutex_unlock(&mutex_carros);
@@ -503,6 +836,7 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
         printf("  6 - Desativar 2 andar\n");
         printf("  7 - 📋 Listar todos os carros\n");
         printf("  8 - 📜 Visualizar log de eventos\n");
+        printf("  9 - 🎫 Reconciliar tickets temporários (LPR)\n");
         printf("  q - Encerrar estacionamento\n\n");      
         
         // Fechamento automático quando lotado (apenas se não estiver em modo manual)
@@ -608,6 +942,10 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
                 visualizarLog();  // Mostra log de eventos
                 pausarAtualizacao = false;
                 break;
+            case '9':
+                listarTicketsTemporarios();  // Lista e reconcilia tickets temporários
+                pausarAtualizacao = false;
+                break;
             case 'Q':  // Aceita 'q' ou 'Q' (convertido por toupper)
                 system("clear");
                 printf("\n╔════════════════════════════════════════╗\n");
@@ -678,6 +1016,21 @@ void *recebePrimeiroAndar(){
     while(1){
         recv(client_sock, andar1, tamVetorReceber * sizeof(int), 0);
         send (client_sock, enviar, tamVetorEnviar *sizeof(int) , 0);
+        
+        // ✅ Detecta e registra passagem entre andares
+        if(andar1[22] == 1){  // Flag de evento de passagem
+            char mensagem[200];
+            if(andar1[21] == 1){
+                // Subindo: Térreo → 1º Andar
+                sprintf(mensagem, "🚗↑ Veículo SUBINDO: Térreo → 1º Andar");
+            } else if(andar1[21] == 2){
+                // Descendo: 1º Andar → Térreo
+                sprintf(mensagem, "🚗↓ Veículo DESCENDO: 1º Andar → Térreo");
+            }
+            registrarEvento(mensagem);
+            printf("%s\n", mensagem);
+        }
+        
         delay(1000);
     }
     close(client_sock);
@@ -724,11 +1077,32 @@ void *recebeSegundoAndar(){
     while(1){
         recv(client_sock, andar2, tamVetorReceber * sizeof(int), 0);
         send (client_sock, enviar, tamVetorEnviar *sizeof(int) , 0);
+        
+        // ✅ Detecta e registra passagem entre andares
+        if(andar2[22] == 1){  // Flag de evento de passagem
+            char mensagem[200];
+            if(andar2[21] == 1){
+                // Subindo: 1º Andar → 2º Andar
+                sprintf(mensagem, "🚗↑ Veículo SUBINDO: 1º Andar → 2º Andar");
+            } else if(andar2[21] == 2){
+                // Descendo: 2º Andar → 1º Andar
+                sprintf(mensagem, "🚗↓ Veículo DESCENDO: 2º Andar → 1º Andar");
+            }
+            registrarEvento(mensagem);
+            printf("%s\n", mensagem);
+        }
+        
         delay(1000);
     }
     close(client_sock);
     printf("Client 2 Disconnected\n");
 }
+
+// ⚠️ Thread removida do Central - MODBUS agora centralizado no Térreo
+// Conforme especificação (Seção 2.2): "publicar estatísticas no placar MODBUS"
+// e "Orientação: centralizar a interface MODBUS no servidor distribuído do Andar Térreo"
+//
+// O Central agora COMANDA o Térreo via TCP/IP para escrever no placar
 
 void *recebeTerreo(){
     char *ip ="127.0.0.1";
@@ -770,10 +1144,55 @@ void *recebeTerreo(){
 
         printf("Client 3 Connected\n");
     
+    // Array para enviar dados do placar MODBUS ao Térreo
+    int dadosPlacar[14];
+    
     while(1){
         recv(client_sock, terreo, tamVetorReceber * sizeof(int), 0);
         send (client_sock, enviar, tamVetorEnviar *sizeof(int) , 0);
         enviar[0] = terreo[12];
+        
+        // ✅ NOVO: Calcula e envia dados do placar MODBUS
+        // Prepara dados de vagas livres por tipo e andar
+        dadosPlacar[0] = terreo[0];   // Vagas livres Térreo PNE
+        dadosPlacar[1] = terreo[1];   // Vagas livres Térreo Idoso
+        dadosPlacar[2] = terreo[2];   // Vagas livres Térreo Comuns
+        dadosPlacar[3] = andar1[0];   // Vagas livres 1º Andar PNE
+        dadosPlacar[4] = andar1[1];   // Vagas livres 1º Andar Idoso
+        dadosPlacar[5] = andar1[2];   // Vagas livres 1º Andar Comuns
+        dadosPlacar[6] = andar2[0];   // Vagas livres 2º Andar PNE
+        dadosPlacar[7] = andar2[1];   // Vagas livres 2º Andar Idoso
+        dadosPlacar[8] = andar2[2];   // Vagas livres 2º Andar Comuns
+        dadosPlacar[9] = terreo[18];  // Número de carros Térreo
+        dadosPlacar[10] = andar1[18]; // Número de carros 1º Andar
+        dadosPlacar[11] = andar2[18]; // Número de carros 2º Andar
+        
+        // ✅ CALCULA FLAGS (bit0, bit1, bit2) para luzes vermelhas do placar MODBUS
+        int flags = 0;
+        
+        // MODO AUTOMÁTICO + MANUAL:
+        // bit0 = Estacionamento lotado (20 vagas ocupadas) OU fechado manualmente
+        int totalCarros = terreo[18] + andar1[18] + andar2[18];
+        if(totalCarros >= 20 || enviar[1] == 1) {
+            flags |= (1 << 0);  // Acende luz vermelha da ENTRADA
+        }
+        
+        // bit1 = 1º Andar lotado (8 vagas ocupadas) OU bloqueado manualmente
+        if(andar1[18] >= 8 || enviar[2] == 1) {
+            flags |= (1 << 1);  // Acende luz vermelha do 1º ANDAR
+        }
+        
+        // bit2 = 2º Andar lotado (8 vagas ocupadas) OU bloqueado manualmente
+        if(andar2[18] >= 8 || enviar[3] == 1) {
+            flags |= (1 << 2);  // Acende luz vermelha do 2º ANDAR
+        }
+        
+        dadosPlacar[12] = flags;  // Flags para o placar MODBUS
+        dadosPlacar[13] = 1;      // Comando: atualizar placar
+        
+        // Envia dados do placar ao Térreo para ele escrever no MODBUS
+        send(client_sock, dadosPlacar, 14 * sizeof(int), 0);
+        
         delay(1000);
     }
     close(client_sock);
@@ -788,18 +1207,23 @@ int mainC(){
     
     pthread_t fMenu,fRecebePrimeiroAndar, fRecebeSegundoAndar, fRecebeTerreo;
     //pthread_t fPassaCarro;
+    // ✅ fPlacarModbus removida - thread agora no Térreo
 
     
     pthread_create(&fRecebePrimeiroAndar, NULL, recebePrimeiroAndar, NULL);
     pthread_create(&fRecebeSegundoAndar, NULL, recebeSegundoAndar, NULL);
     pthread_create(&fRecebeTerreo, NULL, recebeTerreo, NULL);
+    // ✅ Thread de MODBUS removida - agora no Térreo conforme especificação
     //pthread_create(&fPassaCarro, NULL, passaCarro, NULL);
     
     menu(fRecebeTerreo, fRecebePrimeiroAndar, fRecebeSegundoAndar);
     
+    // ✅ MODBUS cleanup removido - agora gerenciado pelo Térreo
+    
     pthread_join(fRecebePrimeiroAndar, NULL);
     pthread_join(fRecebeSegundoAndar, NULL);
     pthread_join(fRecebeTerreo, NULL);
+    // ✅ Thread de MODBUS removida
     //pthread_join(fPassaCarro, NULL);
 
     return 0;
