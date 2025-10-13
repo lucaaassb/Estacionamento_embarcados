@@ -143,17 +143,20 @@ void * sensorEntrada(){
 
         // Controle manual via ThingsBoard - Permite apenas 1 carro por comando
         if(entradaManual && !entradaManualEmAndamento){
-            printf("ENTRADA MANUAL ATIVADA - Abrindo cancela de entrada\n");
+            // ✅ CORREÇÃO: Incrementa carroTotal ANTES de processar entrada
+            ++carroTotal;
+            printf("ENTRADA MANUAL ATIVADA - Carro %d entrando\n", carroTotal);
             
             // === INTEGRAÇÃO LPR: Dispara captura de placa ===
             char placa[9];
             int confianca = 0;
-            bool placaLida = lpr_processar_entrada(carroTotal + 1, placa, &confianca);
+            bool placaLida = lpr_processar_entrada(carroTotal, placa, &confianca);  // ← Usa carroTotal já incrementado
             
             bcm2835_gpio_write(MOTOR_CANCELA_ENTRADA, HIGH);
             parametros[19]=1;
             entradaManualEmAndamento = true; // Marca que uma operação manual está em andamento
             carroPassouEntrada = false;
+            j = 1;  // ✅ Marca que carro já entrou (não incrementar novamente)
             
             if(placaLida) {
                 printf("Aguardando carro com placa %s (conf: %d%%) passar...\n", placa, confianca);
@@ -163,27 +166,25 @@ void * sensorEntrada(){
             delay(1000); // Delay para estabilizar a abertura
         }
         
-        // Se entrada manual está em andamento, aguarda o carro passar
+        // Se entrada manual está em andamento, aguarda o carro passar (ou simula)
         if(entradaManualEmAndamento){
-            // Detecta quando o carro passa pelo sensor de fechamento
+            // Detecta quando o carro passa pelo sensor de fechamento (se hardware presente)
             if(HIGH == bcm2835_gpio_lev(SENSOR_FECHAMENTO_CANCELA_ENTRADA)){
                 if(!carroPassouEntrada){
                     carroPassouEntrada = true;
-                    printf("Carro detectado passando pela cancela...\n");
-                    
-                    // Incrementa contador de carros
-                    if(j==0){
-                        ++carroTotal;
-                        j=1;
-                        parametros[19]=1;
-                        printf("Carro %d entrou manualmente\n", carroTotal);
-                    }
+                    printf("Carro %d detectado passando pela cancela (sensor físico)\n", carroTotal);
                     delay(2000); // Aguarda o carro passar completamente
                 }
             }
+            // ✅ CORREÇÃO: Se não há sensor físico, simula passagem após delay
+            else {
+                delay(2000);  // Simula tempo de passagem sem sensor
+                carroPassouEntrada = true;
+                printf("Carro %d passou pela cancela (entrada manual simulada)\n", carroTotal);
+            }
             
             // Após o carro passar, fecha a cancela e reseta os flags
-            if(carroPassouEntrada && LOW == bcm2835_gpio_lev(SENSOR_FECHAMENTO_CANCELA_ENTRADA)){
+            if(carroPassouEntrada){
                 printf("ENTRADA MANUAL - Fechando cancela de entrada\n");
                 bcm2835_gpio_write(MOTOR_CANCELA_ENTRADA, LOW);
                 parametros[19]=0;
@@ -381,7 +382,7 @@ void pagamento(int g, vaga *v){
     parametros[15]=v[g-1].ncarro;
     parametros[16]=minutos;
     parametros[17]=g;
-    delay(1000);
+    delay(100);  // ✅ REDUZIDO: 100ms para atualização mais rápida
     parametros[14]=0;
 }
 
@@ -397,10 +398,51 @@ void buscaCarro(int f , vaga *v){
     parametros[11] = 0;
 }
 
+//Função para verificar se há vagas disponíveis no estacionamento
+int verificarVagasDisponiveis(){
+    // Retorna 1 se há vagas, 0 se não há
+    if(fechado == 1){
+        printf("[BLOQUEIO] ❌ Estacionamento FECHADO - Entrada negada\n");
+        return 0;
+    }
+    
+    // ✅ Calcula vagas por andar (usa dadosPlacar[] do Servidor Central)
+    int vagasTerreo = dadosPlacar[0] + dadosPlacar[1] + dadosPlacar[2];    // PNE + Idoso + Comuns
+    int vagas1Andar = dadosPlacar[3] + dadosPlacar[4] + dadosPlacar[5];    // PNE + Idoso + Comuns
+    int vagas2Andar = dadosPlacar[6] + dadosPlacar[7] + dadosPlacar[8];    // PNE + Idoso + Comuns
+    
+    // ✅ Zera vagas dos andares bloqueados manualmente
+    // recebe[2] = 1 se 1º Andar bloqueado
+    // recebe[3] = 1 se 2º Andar bloqueado
+    if(recebe[2] == 1) {
+        vagas1Andar = 0;  // Ignora vagas do 1º Andar se bloqueado
+    }
+    if(recebe[3] == 1) {
+        vagas2Andar = 0;  // Ignora vagas do 2º Andar se bloqueado
+    }
+    
+    int vagasTotalDisponiveis = vagasTerreo + vagas1Andar + vagas2Andar;
+    
+    if(vagasTotalDisponiveis > 0){
+        printf("[VAGAS] ✅ %d vagas disponíveis (T:%d A1:%d A2:%d) - Entrada permitida\n", 
+               vagasTotalDisponiveis, vagasTerreo, vagas1Andar, vagas2Andar);
+        return 1;
+    }
+    
+    printf("[VAGAS] ❌ Estacionamento LOTADO (0 vagas) - Entrada negada\n");
+    return 0;
+}
+
 //Função para ativar entrada manual via ThingsBoard
 void ativarEntradaManual(){
+    // ✅ VALIDAÇÃO: Só permite entrada se há vagas disponíveis
+    if(verificarVagasDisponiveis() == 0){
+        printf("❌ ENTRADA MANUAL NEGADA - Sem vagas disponíveis ou estacionamento fechado\n");
+        return;  // ← NÃO permite entrada
+    }
+    
     entradaManual = true;
-    printf("ENTRADA MANUAL SOLICITADA VIA THINGSBOARD\n");
+    printf("✅ ENTRADA MANUAL SOLICITADA VIA THINGSBOARD (vagas disponíveis)\n");
 }
 
 //Função para ativar saída manual via ThingsBoard
@@ -476,10 +518,15 @@ void leituraVagasTerreo(vaga *v){
         } 
         anteriorSomaValores = x.somaValores;
     
-        if(fechado == 1) {
+        // ✅ CORREÇÃO: Usa bit0 do placar MODBUS (já inclui lotado OU fechado)
+        // dadosPlacar[12] = flags do Servidor Central
+        // bit0 = 1 se (totalCarros >= 20 OU enviar[1] == 1)
+        int bit0_lotado_ou_fechado = dadosPlacar[12] & 0x01;
+        
+        if(bit0_lotado_ou_fechado) {
             bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO, HIGH);
         }
-        else if(fechado == 0) {
+        else {
             bcm2835_gpio_write(SINAL_DE_LOTADO_FECHADO, LOW);
         }
     }

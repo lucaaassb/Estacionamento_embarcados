@@ -175,7 +175,7 @@ void pagamento1(int g, vaga *a){
     parametros1[15]=a[g-1].ncarro;
     parametros1[16]=minutos;
     parametros1[17]=g;
-    delay(1000);
+    delay(100);  // ✅ REDUZIDO: 100ms para atualização mais rápida
     parametros1[14]=0;
 }
 

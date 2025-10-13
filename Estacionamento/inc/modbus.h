@@ -15,19 +15,30 @@
 
 // Configurações de comunicação serial
 #define MODBUS_SERIAL_BAUD      115200
-#define MODBUS_SERIAL_PORT      "/dev/serial0 "  // Ajustar conforme necessário
+#define MODBUS_SERIAL_PORT      "/dev/serial0"  // Ajustar: ttyUSB0, ttyAMA0, serial0
 #define MODBUS_TIMEOUT_MS       500
 #define MODBUS_RETRIES          3
+#define MODBUS_MIN_DELAY_MS     100
+#define MODBUS_MEDIUM_DELAY_MS  250
+#define MODBUS_MAX_DELAY_MS     500
 
 // ⚠️ IMPORTANTE: Matrícula inserida em todas as mensagens MODBUS
 // Conforme especificação: "É necessário enviar os 4 últimos dígitos da matrícula
 // ao final de cada mensagem, sempre antes do CRC."
-// Matrícula: 7700 (enviada como ASCII: '7', '7', '0', '0')
+// Matrícula: 7700 (enviada como binário: 0, 7, 7, 0)
 // Formato da mensagem: [Dados MODBUS] + [7700] + [CRC16]
-#define MODBUS_MATRICULA_DIGITO1 '7'  // ASCII 0x37
-#define MODBUS_MATRICULA_DIGITO2 '7'  // ASCII 0x37
-#define MODBUS_MATRICULA_DIGITO3 '0'  // ASCII 0x30
-#define MODBUS_MATRICULA_DIGITO4 '0'  // ASCII 0x30
+#define MODBUS_MATRICULA_BYTE1 0x00  // 0
+#define MODBUS_MATRICULA_BYTE2 0x07  // 7
+#define MODBUS_MATRICULA_BYTE3 0x07  // 7
+#define MODBUS_MATRICULA_BYTE4 0x00  // 0
+
+// Array de matrícula (facilita o uso)
+static const uint8_t MODBUS_MATRICULA[4] = {
+    MODBUS_MATRICULA_BYTE1,
+    MODBUS_MATRICULA_BYTE2,
+    MODBUS_MATRICULA_BYTE3,
+    MODBUS_MATRICULA_BYTE4
+};
 
 // Status da câmera LPR
 typedef enum {

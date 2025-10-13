@@ -134,12 +134,15 @@ void inicializarRastreamentoCarros() {
 bool adicionarCarro(int numeroCarro, int andar, int vaga) {
     pthread_mutex_lock(&mutex_carros);
     
-    // Verifica se o carro já está no sistema (prevenção de duplicatas)
+    // ✅ CORREÇÃO: Verifica se o carro já está ATIVO no sistema
+    // Se encontrar registro antigo, remove automaticamente (limpeza)
     for(int i = 0; i < MAX_CARROS; i++) {
         if(carros[i].ativo && carros[i].numero == numeroCarro) {
-            pthread_mutex_unlock(&mutex_carros);
-            printf("[Rastreamento] AVISO: Carro %d já está registrado!\n", numeroCarro);
-            return false; // Previne duplicata
+            printf("[Rastreamento] ⚠️  Carro %d já registrado (andar %d vaga %d)\n", 
+                   numeroCarro, carros[i].andar, carros[i].vaga);
+            printf("[Rastreamento] 🔧 Removendo registro antigo e criando novo...\n");
+            carros[i].ativo = false;  // Remove registro antigo
+            break;  // Continua para adicionar novo registro
         }
     }
     
@@ -286,39 +289,52 @@ bool adicionarCarroComPlaca(int numeroCarro, const char *placa, int confianca, i
 bool removerCarro(int numeroCarro) {
     pthread_mutex_lock(&mutex_carros);
     
+    // ✅ CORREÇÃO: Remove APENAS o carro mais recente com esse número
+    int indice_mais_recente = -1;
+    time_t timestamp_mais_recente = 0;
+    
     for(int i = 0; i < MAX_CARROS; i++) {
         if(carros[i].ativo && carros[i].numero == numeroCarro) {
-            // Calcula tempo e valor para o log
-            time_t agora = time(NULL);
-            int segundos = (int)difftime(agora, carros[i].timestamp);
-            int minutos = (segundos + 59) / 60;
-            if(minutos < 1) minutos = 1;
-            float valor = minutos * 0.15;
-            
-            char andarNome[15];
-            if(carros[i].andar == 0) sprintf(andarNome, "Térreo");
-            else if(carros[i].andar == 1) sprintf(andarNome, "1º Andar");
-            else sprintf(andarNome, "2º Andar");
-            
-            printf("[Rastreamento] Carro %d removido - %s vaga %d - %dmin - R$ %.2f\n", 
-                   numeroCarro, andarNome, carros[i].vaga, minutos, valor);
-            
-            // Log para arquivo
-            FILE *log = fopen("estacionamento_log.txt", "a");
-            if(log) {
-                time_t t = time(NULL);
-                struct tm *tm_info = localtime(&t);
-                char buffer[64];
-                strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_info);
-                fprintf(log, "[%s] SAIDA - Carro %d - %s vaga %d - %dmin - R$ %.2f\n", 
-                        buffer, numeroCarro, andarNome, carros[i].vaga, minutos, valor);
-                fclose(log);
+            if(indice_mais_recente == -1 || carros[i].timestamp > timestamp_mais_recente) {
+                indice_mais_recente = i;
+                timestamp_mais_recente = carros[i].timestamp;
             }
-            
-            carros[i].ativo = false;
-            pthread_mutex_unlock(&mutex_carros);
-            return true;
         }
+    }
+    
+    if(indice_mais_recente >= 0) {
+        int i = indice_mais_recente;
+        
+        // Calcula tempo e valor para o log
+        time_t agora = time(NULL);
+        int segundos = (int)difftime(agora, carros[i].timestamp);
+        int minutos = (segundos + 59) / 60;
+        if(minutos < 1) minutos = 1;
+        float valor = minutos * 0.15;
+        
+        char andarNome[15];
+        if(carros[i].andar == 0) sprintf(andarNome, "Térreo");
+        else if(carros[i].andar == 1) sprintf(andarNome, "1º Andar");
+        else sprintf(andarNome, "2º Andar");
+        
+        printf("[Rastreamento] Carro %d removido - %s vaga %d - %dmin - R$ %.2f\n", 
+               numeroCarro, andarNome, carros[i].vaga, minutos, valor);
+        
+        // Log para arquivo
+        FILE *log = fopen("estacionamento_log.txt", "a");
+        if(log) {
+            time_t t = time(NULL);
+            struct tm *tm_info = localtime(&t);
+            char buffer[64];
+            strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_info);
+            fprintf(log, "[%s] SAIDA - Carro %d - %s vaga %d - %dmin - R$ %.2f\n", 
+                    buffer, numeroCarro, andarNome, carros[i].vaga, minutos, valor);
+            fclose(log);
+        }
+        
+        carros[i].ativo = false;
+        pthread_mutex_unlock(&mutex_carros);
+        return true;
     }
     
     pthread_mutex_unlock(&mutex_carros);
@@ -839,17 +855,24 @@ void menu(pthread_t fRecebeTerreo, pthread_t fRecebePrimeiroAndar, pthread_t fRe
         printf("  9 - 🎫 Reconciliar tickets temporários (LPR)\n");
         printf("  q - Encerrar estacionamento\n\n");      
         
-        // Fechamento automático quando lotado (apenas se não estiver em modo manual)
-        if((terreo[18] == 8 && r==0 && manual == 0 &&(andar1[18]== 8 || andar1[20] == 1) && (andar2[18] == 8 || andar2[20] == 1))){
+        // ✅ CORREÇÃO: Fechamento automático quando lotado (20 carros no total)
+        // Conforme especificação: 20 vagas totais (4 térreo + 8 andar1 + 8 andar2)
+        int totalCarrosAtual = terreo[18] + andar1[18] + andar2[18];
+        
+        if(totalCarrosAtual >= 20 && r == 0 && manual == 0){
             enviar[1] = 1;
             r = 1;
-            registrarEvento("🔴 ESTACIONAMENTO FECHADO automaticamente (lotado)");
+            registrarEvento("🔴 ESTACIONAMENTO FECHADO automaticamente (lotado - 20 vagas ocupadas)");
+            printf("\n⚠️  ESTACIONAMENTO LOTADO - Total: %d carros (T:%d A1:%d A2:%d)\n", 
+                   totalCarrosAtual, terreo[18], andar1[18], andar2[18]);
         } 
-        // Reabertura automática (apenas se não estiver em modo manual de fechamento)
-        else if((terreo[18] < 8 || andar1[20] == 0 || andar2[20] == 0) && r == 1 && manual == 0){
+        // ✅ CORREÇÃO: Reabertura automática quando há vagas disponíveis
+        else if(totalCarrosAtual < 20 && r == 1 && manual == 0){
             enviar[1] = 0;          
             r = 0;
             registrarEvento("🟢 ESTACIONAMENTO ABERTO automaticamente (vagas disponíveis)");
+            printf("\n✅ ESTACIONAMENTO REABERTO - Total: %d carros (T:%d A1:%d A2:%d)\n", 
+                   totalCarrosAtual, terreo[18], andar1[18], andar2[18]);
         }
         
         if(kbhit()){
